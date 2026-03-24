@@ -24,7 +24,10 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
 4. Install dependencies
    pip install -r requirements.txt
 
-5. Verify the installation
+5. Configure Ultralytics settings
+   python setup_env.py
+
+6. Verify the installation
    python -c "import ultralytics, pymongo, mlflow; print('OK')"
 
 ## Environment Variables
