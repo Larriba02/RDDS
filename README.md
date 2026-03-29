@@ -10,38 +10,44 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
 ## Setup
 
 1. Clone the repository
-   git clone https://github.com/tu_usuario/rdds.git
+   git clone https://github.com/Larriba02/rdds.git
    cd rdds
 
-2. Create your environment file
-   cp .env.example .env
-   Fill in the real values in .env (never commit this file)
-
-3. Create and activate a virtual environment
+2. Create and activate a virtual environment
    python -m venv .venv
-   .venv\Scripts\activate
+   .venv\Scripts\activate        # Windows
+   source .venv/bin/activate     # Mac/Linux
 
-4. Install dependencies
-   pip install -r requirements.txt
+3. Run the setup script
+   python setup.py
 
-5. Configure Ultralytics settings
-   python setup_env.py
+   This will:
+   - Install all dependencies
+   - Ask for your credentials and create your .env file
+   - Configure Ultralytics for the project
+   - Verify the installation
 
-6. Verify the installation
-   python -c "import ultralytics, pymongo, mlflow; print('OK')"
+4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
+
+## No credentials yet?
+Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
+In the meantime you can still clone the repo, set up the environment,
+and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
 
 ## Environment Variables
 - MONGO_URI: MongoDB Atlas connection string
 - RDD_DATA_ROOT: Local path to the processed RDD2022 dataset
 - BACKBLAZE_KEY_ID / BACKBLAZE_APP_KEY: Backblaze B2 credentials
 - BACKBLAZE_BUCKET: Bucket name for model checkpoints
-- SAMPLE_RATIO: Fraction of training data to use (0.10 for Phase 0, 1.0 for Phase 1)
 - RANDOM_SEED: Fixed at 42 in all runs
+- SAMPLE_RATIO: Set automatically (0.10 Phase 0 / 1.0 Phase 1)
+
+## Documentation
+- DOCUMENTATION/RDDS_Dev_Steps.md — step-by-step development guide
+- DOCUMENTATION/RDDS_Pipeline.md — full pipeline reference
+- DOCUMENTATION/IN DETAIL/ — detailed guides for each pipeline stage
 
 ## Team
-- M — Project lead. Pipeline architecture, training, delivery.
+- M — Project lead. Pipeline architecture
 - L — MongoDB setup: Atlas cluster, collections, schemas.
-- J — TBD.
-
-## Pipeline
-See RDDS_Dev_Steps.md for the full step-by-step development guide.
+- J — Baseline architect

@@ -54,7 +54,8 @@ scikit-learn==1.4.2
 ```
 
 ### Done criterion — verified ✅
-Any team member can clone, run `pip install -r requirements.txt`, configure `.env`, and the environment is ready.
+Any team member can clone the repo, run python setup.py, 
+and the environment is fully configured and verified.
 
 ---
 
@@ -304,6 +305,18 @@ seed:         42
 
 ```
 rdds/
+├── DOCUMENTATION/
+│   ├── RDDS_Technical_Document.docx
+│   ├── RDDS_Dev_Steps.md
+│   ├── RDDS_Pipeline.md
+│   └── IN DETAIL/
+│       ├── setup.md
+│       ├── mongodb.md
+│       ├── training.md
+│       ├── inference.md
+│       └── retraining.md
+├── FOLLOW-UP/
+│   └── Follow-up_Template.docx
 ├── src/
 │   ├── db/
 │   │   ├── connection.py
@@ -333,11 +346,9 @@ rdds/
 │   └── train_cluster.sh
 ├── logs/
 ├── outputs/
+├── setup.py
 ├── .env.example
 ├── .gitignore
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
-
----
-
-*Paste this document together with RDDS_Claude_Memory.md at the start of a new conversation to resume development from any step.*
