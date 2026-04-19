@@ -61,13 +61,25 @@ We download RDD2022 — the most current and comprehensive public dataset for ro
 | D40 | Pothole |
 
 The preprocessing script runs the following steps in order:
+### Input  
+RDD2022 dataset (official splits per country)
 
+### Steps
 1. **Download and extract** country ZIPs to local filesystem.
 2. **Validate annotations** — parse every PascalVOC XML file and discard bounding boxes with coordinates outside image dimensions, negative values, or degenerate area. Log all discarded samples explicitly.
 3. **Convert to YOLO format** — PascalVOC uses absolute pixel coordinates in XML; YOLO requires normalised coordinates (0–1) in `.txt` files, one per image. Ultralytics provides built-in conversion utilities for this. This step runs once and the output is cached.
 4. **Analyse class distribution** — count instances per class before splitting. This is not optional: RDD2022 has severe class imbalance (D00 longitudinal cracks are massively overrepresented versus D40 potholes). The distribution analysis informs the class weights used in training.
-5. **Stratified split** — 70% train / 15% validation / 15% test, stratified by *both* damage class and country. This ensures no class or country is absent from any split.
+5. **Respect official splits**:  
+	- **Test split: untouched, always 100%**  
+	- **Train split:**  
+		-  Stratified by *both* damage class and country
+		- Reserve fixed validation set (1000 images per country)
 6. **Write metadata to MongoDB** — every image gets a document in the `images_metadata` collection (see MongoDB section below).
+
+### Output  
+- YOLO-formatted dataset  
+- MongoDB `images_metadata`
+
 
 ### Why this matters
 
@@ -81,16 +93,15 @@ RDD2022 ships with official train/test partitions per country. These are respect
 
 Within the official train split, a `SAMPLE_RATIO` controls how much data is used for training. The sampling is **stratified by country**: every country contributes the same percentage, guaranteeing geographic representation at any scale.
 
-A fixed baseline of **1,000 images per country** is always reserved for validation and cross-run comparison. This subset is consistent across all experiments — it never changes regardless of `SAMPLE_RATIO`. This allows meaningful comparison of hyperparameter runs on the laptop without needing the full dataset.
+A fixed baseline of **1,000 images per country** is always reserved for validation and cross-run comparison. This subset is consistent across all experiments — it never changes regardless of `SAMPLE_RATIO`. This allows meaningful comparison of hyperparameter runs throught the project.
 
-| Phase | SAMPLE_RATIO | Countries | Purpose |
-|-------|-------------|-----------|---------|
-| Phase 0 (laptop) | ~0.10 | All 6 | Pipeline validation + hyperparameter exploration. Small % of each country. |
-| Phase 1 (A100) | 1.00 | All 6 | Full training. |
+| Phase            | SAMPLE_RATIO | Countries | Purpose                                                                    |
+| ---------------- | ------------ | --------- | -------------------------------------------------------------------------- |
+| Phase 0 (laptop) | ~0.10        | All 6     | Pipeline validation + hyperparameter exploration. Small % of each country. |
+| Phase 1 (A100)   | 1.00         | All 6     | Full training.                                                             |
 
 The **test split is always 100%** regardless of `SAMPLE_RATIO`. Partial test evaluation would make results incomparable across runs and against published benchmarks.
 
-Norway is included in both training and test — excluding it would discard the largest country in the dataset (~9.9 GB) without benefit.
 
 ### Centralised ingestion
 
@@ -222,16 +233,17 @@ Mitigation:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  PHASE 0 — Laptop (RTX 4050, 6 GB VRAM)                         │
+│  PHASE 0 — Laptop (RTX 4050, 6 GB VRAM)                          │
 │                                                                  │
-│  Dataset:   All 6 countries, ~10% each (SAMPLE_RATIO=0.10)      │
+│  Dataset:   All 6 countries, ~10% each (SAMPLE_RATIO=0.10)       │
 │  Model:     YOLO11s                                              │
-│  Config:    batch=8, imgsz=640, epochs=50, amp=True (FP16)      │
+│  Config:    batch=8, imgsz=640, epochs=50, amp=True (FP16)       │
+│             patience=15 (early stopping on val/map50)            │
 │  Goal:      Verify the full pipeline runs without errors.        │
 │             Explore hyperparameters across all countries.        │
 │             Confirm MongoDB writes, MLflow logging, evaluation.  │
 │             Produce a real (weak) baseline mAP number.           │
-│  Expected:  mAP@0.5 ~0.60–0.65                                  │
+│  Expected:  mAP@0.5 ~0.60–0.65                                   │
 └──────────────────────────────────────────────────────────────────┘
                             ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -239,7 +251,8 @@ Mitigation:
 │                                                                  │
 │  Dataset:   All 6 countries, full train split (SAMPLE_RATIO=1.0) │
 │  Models:    YOLO11s (confirmed baseline) + YOLO11m (main)        │
-│  Config:    batch=32, imgsz=640, epochs=100, amp=True (FP16)    │
+│  Config:    batch=32, imgsz=640, epochs=100, amp=True (FP16)     │
+│             patience=20 (early stopping on val/map50)           │
 │  Goal:      Full-performance training. Final evaluation on       │
 │             Norway held-out test set.                            │
 │  Expected:  mAP@0.5 ~0.82–0.88 (YOLO11m)                       │
@@ -249,6 +262,17 @@ Mitigation:
 **Why train on the laptop first?** The A100 is a shared university resource. Running a buggy pipeline on it wastes hours of cluster time that cannot be recovered. The laptop phase is not about getting good results — it is about confirming the code is correct before spending that resource. Every team project that skips this step regrets it.
 
 **Why does FP16 (mixed precision) matter on the laptop?** The RTX 4050 laptop has 6 GB of VRAM. At FP32, YOLO11m with batch=8 at 640px does not fit. FP16 halves memory usage with negligible accuracy impact. It is enabled by default in Ultralytics (`amp=True`).
+
+### Early stopping
+
+YOLO11 runs on RDD2022 typically plateau between epoch 40 and 60. Training for fixed epochs wastes compute and increases the risk of overfitting the validation set. Ultralytics supports early stopping natively via the `patience` argument, which halts training if the monitored metric does not improve for N consecutive epochs.
+
+| Phase | patience | Monitor | Rationale |
+|-------|----------|---------|-----------|
+| Phase 0 (laptop) | 15 | `metrics/mAP50` | Short runs, noisy val, stop early if stuck. |
+| Phase 1 (A100)   | 20 | `metrics/mAP50` | Longer runs, tolerate more plateaus before stopping. |
+
+The monitored metric is Ultralytics' built-in `metrics/mAP50` on the fixed 1,000-per-country validation set. Early stopping does not replace epoch budgets — it bounds them. The `last.pt` from an early-stopped run is still uploaded to Backblaze alongside `best.pt`.
 
 ### Experiment tracking
 
@@ -268,15 +292,17 @@ This protocol ensures our results are directly comparable to published benchmark
 
 ### Metrics
 
-| Metric | What it measures | Why we report it |
-|--------|-----------------|-----------------|
-| **mAP@0.5** | Mean Average Precision across all classes at IoU=0.5 | Primary metric. Used in all challenge leaderboards. Single number for overall model quality. |
-| **F1 score** | Harmonic mean of precision and recall | Summarises the precision/recall trade-off. Reported per class and globally. |
-| **Precision** | Of all detections made, how many were correct | High precision = few false alarms. |
-| **Recall** | Of all real damages, how many were detected | High recall = few missed damages. |
-| **Confusion matrix** | Misclassifications between damage types | Reveals systematic errors (e.g., D00 labelled as D10). |
+The **official CRDDC2022 ranking metric is F1-score** at IoU=0.5 (source: https://crddc2022.sekilab.global/overview/). Our primary reported metric therefore follows the same protocol so results are directly comparable with the challenge leaderboards. mAP@0.5 is still reported as the standard detection metric and as a training-time tracker.
 
-All metrics are reported **per class** and **globally**. Per-class results are essential because the class imbalance means a high global mAP can hide poor D40 performance.
+| Metric               | What it measures                                     | Why we report it                                                                             |
+| -------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **F1 score**         | Harmonic mean of precision and recall                | **Primary metric — official CRDDC2022 ranking criterion.** Reported per class and globally. |
+| **mAP@0.5**          | Mean Average Precision across all classes at IoU=0.5 | Standard detection metric. Used during training for early stopping and `best.pt` selection.  |
+| **Precision**        | Of all detections made, how many were correct        | High precision = few false alarms.                                                           |
+| **Recall**           | Of all real damages, how many were detected          | High recall = few missed damages.                                                            |
+| **Confusion matrix** | Misclassifications between damage types              | Reveals systematic errors (e.g., D00 labelled as D10).                                       |
+
+All metrics are reported **per class** and **globally**. Per-class results are essential because the class imbalance means a high global score can hide poor D40 performance. The CRDDC2022 leaderboard also maintains **per-country F1**; we follow the same convention and report F1 per country as well as the country-average overall F1.
 
 ### Qualitative evaluation
 
@@ -365,10 +391,13 @@ Execution steps:
 2. **Ingest** validated images into MongoDB (`images_metadata`) with split assignment.
 3. **Load checkpoint** of `base_model_version` from filesystem.
 4. **Fine-tune** from checkpoint on the combined dataset (existing training set + new images), using the same hyperparameter config as the original training run.
-5. **Evaluate** the new model on the fixed official test split. Compute mAP@0.5.
-6. **Compare** against current production model.
-   - If `mAP_new >= mAP_current`: set new model `is_production=True`, set previous model `is_production=False`. Log result to MongoDB.
-   - If `mAP_new < mAP_current`: keep current production model. Log the new run as non-promoted with the delta.
+5. **Evaluate** the new model on the fixed official test split. Compute **F1 (primary)** and mAP@0.5 (secondary). Average F1 across the 6 countries — matches the CRDDC2022 ranking convention.
+6. **Compare** against current production model using the primary metric with a minimum improvement threshold.
+   - If `F1_new > F1_current + 0.01` (absolute): set new model `is_production=True`, set previous model `is_production=False`. Log result to MongoDB.
+   - If `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` (noise band): keep current production model, but log the new run as `status="completed"` with the delta for manual review.
+   - If `F1_new < F1_current − 0.005`: regression. Keep current production. Log as non-promoted with the delta and investigate.
+
+The `+0.01` improvement margin is a safeguard against promoting noise-level differences on the finite validation set. It can be tightened once variance across seeds is characterised (see proposed deltas).
 
 ### Why fine-tune from checkpoint instead of retraining from scratch?
 
@@ -378,20 +407,20 @@ Fine-tuning from an existing checkpoint is faster (converges in fewer epochs), t
 
 ## Summary: Key Technical Decisions
 
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Architecture | YOLO11m | Empirically best on RDD2022 specifically. Better than YOLOv8 with fewer parameters. |
-| Baseline model | YOLO11s | Fast to train anywhere. Guarantees a presentable result under any circumstance. |
-| Dataset | RDD2022 | Most current benchmark dataset. 6 countries, 47k+ images, CC BY-SA 4.0. |
-| Test set | Official RDD2022 test split, always 100% | Comparable with published benchmarks. Never touched during training. |
-| Database | MongoDB | Heterogeneous document structure fits naturally. Images stay on filesystem. |
-| Laptop phase | All 6 countries ~10%, 50 epochs | Pipeline validation + hyperparameter exploration across full geographic distribution. |
-| Cluster phase | Full dataset, 100 epochs, A100 | Full-performance training. imgsz=1280 possible as optional experiment. |
-| Video handling | Frame extraction at 1 fps | Damage is static. No need to process every frame. No mobile deployment required. |
-| Retraining | Manually triggered fine-tuning | Achievable in scope. Fully auditable. Meets project requirements. |
-| Experiment tracking | MLflow + MongoDB | MLflow for training curves and configs. MongoDB for production model registry. |
-| Class imbalance | Per-class loss weights + MixUp on D40 | D40 (potholes) is critically underrepresented. Must be compensated explicitly. |
-| Random seed | 42, fixed in all runs | Non-negotiable reproducibility requirement. |
+| Decision            | Choice                                   | Reason                                                                                                           |
+| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Architecture        | YOLO11m                                  | Empirically best on RDD2022 specifically. Better than YOLOv8 with fewer parameters.                              |
+| Baseline model      | YOLO11s                                  | Fast to train anywhere. Guarantees a presentable result under any circumstance.                                  |
+| Dataset             | RDD2022                                  | Most current benchmark dataset. 6 countries, 47k+ images, CC BY-SA 4.0.                                          |
+| Test set            | Official RDD2022 test split, always 100% | Comparable with published benchmarks. Never touched during training.                                             |
+| Database            | MongoDB                                  | Heterogeneous document structure fits naturally. Images stay on filesystem.                                      |
+| Laptop phase        | Baseline + validation                    | Pipeline validation + hyperparameter exploration across full geographic distribution + baseline model generation |
+| Cluster phase       | Full dataset                             | Full-performance training. imgsz=1280 possible as optional experiment.                                           |
+| Video handling      | Frame extraction at 1 fps                | Damage is static. No need to process every frame. No mobile deployment required.                                 |
+| Retraining          | Manually triggered fine-tuning           | Achievable in scope. Fully auditable. Meets project requirements.                                                |
+| Experiment tracking | MLflow + MongoDB                         | MLflow for training curves and configs. MongoDB for production model registry.                                   |
+| Class imbalance     | Per-class loss weights + MixUp on D40    | D40 (potholes) is critically underrepresented. Must be compensated explicitly.                                   |
+| Random seed         | 42, fixed in all runs                    | Non-negotiable reproducibility requirement.                                                                      |
 
 ---
 
@@ -400,13 +429,13 @@ Fine-tuning from an existing checkpoint is faster (converges in fewer epochs), t
 
 ### Team
 
-- **M** — project lead. Responsible for pipeline architecture, training, and overall delivery.
-- **L** — responsible for MongoDB setup: Atlas cluster, collections, schemas, and connection.
-- **J** — role TBD.
+- **M** — Project lead. Responsible for pipeline architecture, overall delivery.
+- **L** — Responsible for MongoDB setup: Atlas cluster, collections, schemas, and connection.
+- **J** — Training and support on tasks
 
 ### Hardware
-- **RTX 4050 Laptop (6 GB VRAM):** YOLO11s and YOLO11m fit with FP16 (`amp=True`) and batch=8 at imgsz=640. YOLO11l and above do not fit reliably. This is the Phase 0 machine.
-- **RTX 4060 (teammate, 8 GB VRAM):** YOLO11m fits comfortably at batch=16, imgsz=640, FP16. Useful for parallel Phase 0 runs or running experiments independently. Cannot replace the A100 for full training but meaningfully extends the team's local compute.
+- **RTX 4050 Laptop (M, 6 GB VRAM):** YOLO11s and YOLO11m fit with FP16 (`amp=True`) and batch=8 at imgsz=640. YOLO11l and above do not fit reliably. This is the Phase 0 machine.
+- **RTX 4060 (J, 8 GB VRAM):** YOLO11m fits comfortably at batch=16, imgsz=640, FP16. Useful for parallel Phase 0 runs or running experiments independently. Cannot replace the A100 for full training but meaningfully extends the team's local compute.
 - **University A100 (40 GB VRAM):** All model sizes viable. batch=32 at imgsz=640 comfortable. imgsz=1280 possible as an optional experiment. Access is shared — confirm the exact job submission process before planning cluster-dependent work. Do not assume unlimited availability.
 
 ### Cluster Access Details
@@ -448,11 +477,6 @@ Since all three team members work on different machines and the A100 has interne
 ### Timeline
 ~2 months to final results. This constraint is fixed and eliminates: ensemble methods, semi-supervised learning, transformer-only architectures, knowledge distillation, and any two-stage detector approach. All of these are out of scope by time, not by technical merit.
 
-### Open Decisions (to be resolved before implementation starts)
-- ~~Confirm the exact process for submitting jobs to the university A100 cluster.~~ Resolved — see Cluster Access Details.
-- ~~Decide whether to record own video.~~ Resolved — see Qualitative Demo Video below.
-- ~~Decide on imgsz=1280 experiment.~~ Resolved — see imgsz=1280 Experiment below.
-- Define full role division across the 6 pipeline stages beyond what is currently assigned.
 
 ### Qualitative Demo Video
 
@@ -481,9 +505,6 @@ The decision is made after the baseline run completes, not before.
 - Semi-supervised learning or knowledge distillation.
 - Automatic retraining triggers.
 - Manual annotation of own video footage.
-
-### How to Update This Document
-When significant decisions change, update the relevant section and bump the version number in the header. If a decision from "Open Decisions" gets resolved, move it to the appropriate pipeline section and remove it from here. If new context is added mid-project (e.g., cluster access details, team role split, new constraints), paste it into this section directly.
 
 ---
 

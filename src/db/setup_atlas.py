@@ -5,7 +5,7 @@ One-time setup script: creates the three RDDS collections and their indexes
 in MongoDB Atlas. Safe to re-run — existing indexes are left untouched.
 
 Run once, by any team member with a valid MONGO_URI:
-    python src/db/setup_atlas.py
+    python -m src.db.setup_atlas
 """
 
 from pymongo import ASCENDING

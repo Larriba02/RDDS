@@ -11,7 +11,7 @@ What it does:
   5. Prints a per-collection OK / FAIL and an overall result.
 
 Run:
-    python src/db/test_connection.py
+    python -m src.db.test_connection
 
 Expected output (all passing):
     [images_metadata]  OK

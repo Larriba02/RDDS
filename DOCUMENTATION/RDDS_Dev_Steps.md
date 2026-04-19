@@ -9,7 +9,7 @@ This document is a step-by-step development guide. It is designed to be pasted i
 ## Context Summary
 
 - **Project:** Road damage detection system using deep learning on RDD2022 dataset.
-- **Team:** M (lead), L (MongoDB), J (TBD).
+- **Team:** M (lead), L (MongoDB), J (Training).
 - **Hardware:** RTX 4050 laptop (6GB, Phase 0), RTX 4060 teammate (8GB), A100 cluster (40GB, Phase 1).
 - **Cluster:** SLURM, `sbatch`, Python scripts only, internet access, 50GB local storage per node.
 - **Database:** MongoDB Atlas (shared, free tier). URI in `.env`, never in Git.
@@ -75,7 +75,8 @@ and the environment is fully configured and verified.
   - `predictions`: index on `image_id`, `model_version`
 - [ ] Share connection URI with team. Store in `.env` as `MONGO_URI`.
 - [ ] Write `src/db/connection.py` — single function `get_db()` that returns the database handle using `MONGO_URI` from `.env`.
-- [ ] Write a smoke test: `python src/db/test_connection.py` — connects, inserts a dummy document, deletes it, prints OK.
+- [ ] Write `src/db/setup_atlas.py` — idempotent script that creates the three collections and all required indexes.
+- [ ] Write a smoke test: `python -m src.db.test_connection` — connects, inserts/reads/deletes a sentinel document in each collection, prints OK.
 
 ### MongoDB Schemas
 
@@ -128,7 +129,7 @@ and the environment is fully configured and verified.
 **status values:** `running` | `completed` | `promoted` | `superseded`
 
 ### Done when
-`python src/db/test_connection.py` prints OK on all three machines.
+`python -m src.db.setup_atlas` and `python -m src.db.test_connection` both print OK on all three machines.
 
 ---
 
@@ -182,7 +183,8 @@ Model:        YOLO11s
 Dataset:      All 6 countries, SAMPLE_RATIO=0.10
 Batch:        8
 imgsz:        640
-Epochs:       50
+Epochs:       50          # hard cap
+patience:     15          # early stopping on metrics/mAP50
 amp:          True (FP16)
 seed:         42
 cls_weight:   from class_distribution.json
@@ -213,7 +215,8 @@ Models:       YOLO11s (confirmed baseline) + YOLO11m (main)
 Dataset:      All 6 countries, SAMPLE_RATIO=1.0
 Batch:        32
 imgsz:        640
-Epochs:       100
+Epochs:       100         # hard cap
+patience:     20          # early stopping on metrics/mAP50
 amp:          True (FP16)
 seed:         42
 ```
@@ -320,6 +323,7 @@ rdds/
 ├── src/
 │   ├── db/
 │   │   ├── connection.py
+│   │   ├── setup_atlas.py
 │   │   └── test_connection.py
 │   ├── data/
 │   │   ├── download.py
@@ -352,3 +356,28 @@ rdds/
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Appendix A — Official Metric Alignment (CRDDC2022)
+
+Source: https://crddc2022.sekilab.global/overview/
+
+- **Primary ranking metric:** F1-score at IoU ≥ 0.5. Our Step 5 evaluation and Step 7 promotion rule follow the same protocol.
+- **Per-country leaderboards:** CRDDC2022 maintains per-country F1 and an overall average. We mirror this: `metrics.F1_per_country` and `metrics.F1_overall` in the `experiments` document.
+- **Training-time tracker:** mAP@0.5 on the fixed 1,000-per-country validation set. Used to select `best.pt` and to drive early stopping (`patience`). This is an operational metric, not the reported one.
+- **Promotion rule:** `F1_new > F1_current + 0.01`. Runs within ±0.005 of the current production F1 are logged but not promoted (noise band). This supersedes any earlier `mAP_new >= mAP_current` wording.
+
+## Appendix B — Proposed Deltas Before Step 2 Begins
+
+Reviewed 2026-04-17. Items flagged by the workflow review but not yet applied — M to decide which to adopt.
+
+1. **Validate MONGO_URI in setup.py.** Reject empty input before writing `.env`; today the script accepts `<mongo_uri>` and defers the failure to runtime.
+2. **`requirements-lock.txt`.** Run `pip freeze > requirements-lock.txt` after install, commit, and install from the lock file going forward. Prevents transitive-dependency drift between M/L/J machines.
+3. **Stratified validation set.** The 1,000-per-country val set is not stratified by damage class. Use `sklearn.model_selection.StratifiedShuffleSplit` on (country, class) pairs when writing `src/data/split.py`.
+4. **Phase 0 → Phase 1 gate.** Add explicit pass criterion at end of Step 3: *Phase 0 YOLO11s must reach mAP@0.5 > 0.58 on val before submitting any A100 job.*
+5. **Multi-seed runs in Phase 1.** Train YOLO11s and YOLO11m with seeds `[42, 123, 456]` and report mean ± std F1. Without this, the YOLO11s vs YOLO11m comparison is a single-sample claim.
+6. **Ablation control in Phase 0.** Also run YOLO11m with Phase 0 hyperparams (batch=8, epochs=50, 10% data) so the Phase 1 jump isolates dataset scale from model size.
+7. **Synthetic mini-dataset.** `tests/data/tiny_rdd2022/` with 5 images × 2 countries × all 4 classes — lets Step 2 code be smoke-tested in seconds, not hours.
+8. **MLflow tracking URI documented.** Decide and document whether runs log to a shared URI or per-machine `./mlruns/`. Today `setup.py` enables MLflow without specifying a backend.
+9. **Secret rotation plan.** Credentials from old `.env` commits are still in repo history. Decide between (a) rotating the Atlas password and leaving history, or (b) BFG/`git filter-repo` to purge.

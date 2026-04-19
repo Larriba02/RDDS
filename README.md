@@ -27,7 +27,17 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    - Configure Ultralytics for the project
    - Verify the installation
 
+   Alternative: copy `.env.example` to `.env` and fill in the values by hand,
+   then `pip install -r requirements.txt`.
+
 4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
+
+5. Verify MongoDB Atlas connection (Step 1)
+   python -m src.db.setup_atlas
+   python -m src.db.test_connection
+
+   First command creates the three collections and their indexes (idempotent).
+   Second command inserts/reads/deletes a sentinel document in each collection.
 
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
@@ -50,4 +60,4 @@ and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
 ## Team
 - M — Project lead. Pipeline architecture
 - L — MongoDB setup: Atlas cluster, collections, schemas.
-- J — Baseline architect
+- J — Training and support
