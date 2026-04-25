@@ -208,6 +208,7 @@ __marimo__/
 
 # Data y artefactos del modelo
 data/
+!src/data/
 checkpoints/
 runs/
 mlruns/
