@@ -219,3 +219,7 @@ logs/
 
 # Obsidian
 .obsidian/
+
+# Claude Code — per-developer review marker (managed by the
+# block-push-without-review hook). Configuration in .claude/ IS committed.
+.claude/.review-marker

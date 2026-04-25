@@ -157,9 +157,11 @@ and the environment is fully configured and verified.
 - [ ] `src/data/analyse_distribution.py` — count instances per class per country. Print distribution table. Save to `logs/class_distribution.json`. **This output calibrates cls_weight in training — do not skip.**
 
 - [ ] `src/data/split.py` — respect official RDD2022 train/test partitions. Within the official train split:
-  - Reserve fixed 1,000 images per country for validation.
+  - Reserve fixed 1,000 images per country for validation. **Stratified by (country, dominant damage class)** using `sklearn.model_selection.StratifiedShuffleSplit` so the val set preserves class balance per country, not just country balance. The dominant class per image is the most frequent label among its bboxes; ties broken by alphabetical order.
   - Remaining train images sampled at `SAMPLE_RATIO` stratified by country.
   - `image_id` = MD5 hash of relative filepath.
+
+- [ ] `tests/data/tiny_rdd2022/` — **synthetic mini-dataset** committed to the repo: 5 images × 2 countries (Japan, Czech) × all 4 classes (D00, D10, D20, D40). Lets every step from validation through training be smoke-tested in seconds. Reused in Step 4 as the *cluster smoke test* before any A100 job: `sbatch` a 1-epoch run on the tiny dataset to confirm SLURM, CUDA, and Mongo writes work end-to-end on the cluster node before queueing the real run.
 
 - [ ] `src/data/ingest.py` — write one document per image to MongoDB `images_metadata`. Skip if `image_id` already exists (idempotent).
 
@@ -172,10 +174,19 @@ and the environment is fully configured and verified.
 
 ---
 
-## ⏳ STEP 3 — Phase 0 Training
+## ⏳ STEP 3 — Phase 0 Training (Sandbox + Baseline)
 
 **Owner:** M  
 **Goal:** Full pipeline runs end-to-end on laptop. Real (weak) mAP number produced. MongoDB writes confirmed. MLflow logging confirmed.
+
+### Phase 0 philosophy — laptop sandbox
+
+Phase 0 is **not just a one-off baseline run**. It is the iteration sandbox where M:
+- Trains YOLO11s with growing dataset fractions (`SAMPLE_RATIO=0.10 → 0.25 → 0.50 → 1.00`) to map the F1/mAP-vs-data curve. Each step is either a fresh run from COCO weights or a fine-tune from the previous checkpoint, depending on whether continuing produced gains in the previous fraction.
+- Tunes hyperparameters that are unsafe to discover on the A100 (batch size for OOM, augmentation knobs, LR schedule).
+- Exercises the full retraining workflow (Step 7) end-to-end before it has to run unattended in the cluster.
+
+The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which Phase 1 (YOLO11m) is measured.
 
 ### Configuration
 ```
@@ -223,7 +234,8 @@ seed:         42
 
 ### Tasks
 - [ ] Create `scripts/train_cluster.sh` — sbatch script.
-- [ ] Run YOLO11s first (faster, confirms cluster setup works).
+- [ ] **Cluster smoke test** — `sbatch` a 1-epoch run on `tests/data/tiny_rdd2022/` (the synthetic mini-dataset from Step 2). Must finish without SLURM errors, write a sentinel `experiments` doc to MongoDB, and upload a `best.pt` to Backblaze. This validates SLURM, CUDA, network, and the full pipeline on the cluster node before any real job is queued.
+- [ ] Run YOLO11s first (faster, confirms cluster setup works on real data).
 - [ ] Run YOLO11m after YOLO11s completes successfully.
 - [ ] Promote best model via `promote.py`.
 
@@ -301,6 +313,7 @@ seed:         42
 - `.env` is never committed to Git.
 - Every training run writes to MongoDB before, during, and after training.
 - Checkpoints are uploaded to Backblaze immediately after training.
+- **MLflow tracking URI:** per-machine local store at `./mlruns/` (default). MongoDB remains the cross-machine source of truth for experiment results; MLflow is kept as a local convenience for inspecting curves and comparing runs on the same machine. A shared MLflow server is *not* set up in this project — the cost (hosting, auth, 3-month timeline) outweighs the benefit when MongoDB already serves the cross-machine role. Reconsider only if the team grows or runs multiply.
 
 ---
 
@@ -314,10 +327,11 @@ rdds/
 │   ├── RDDS_Pipeline.md
 │   └── IN DETAIL/
 │       ├── setup.md
-│       ├── mongodb.md
+│       ├── mongo.md
 │       ├── training.md
 │       ├── inference.md
-│       └── retraining.md
+│       ├── retraining.md
+│       └── ai_assistance.md   # Claude Code / AI usage in this project
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
 ├── src/
@@ -348,8 +362,18 @@ rdds/
 │       └── main.py
 ├── scripts/
 │   └── train_cluster.sh
+├── tests/
+│   └── data/
+│       └── tiny_rdd2022/    # 5 imgs × 2 countries × 4 classes (Step 2 + Step 4 smoke test)
 ├── logs/
 ├── outputs/
+├── CLAUDE.md
+├── .claude/
+│   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
+│   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
+│   │                         # doc-syncer, step-implementer
+│   ├── hooks/
+│   └── settings.json
 ├── setup.py
 ├── .env.example
 ├── .gitignore
@@ -368,16 +392,21 @@ Source: https://crddc2022.sekilab.global/overview/
 - **Training-time tracker:** mAP@0.5 on the fixed 1,000-per-country validation set. Used to select `best.pt` and to drive early stopping (`patience`). This is an operational metric, not the reported one.
 - **Promotion rule:** `F1_new > F1_current + 0.01`. Runs within ±0.005 of the current production F1 are logged but not promoted (noise band). This supersedes any earlier `mAP_new >= mAP_current` wording.
 
-## Appendix B — Proposed Deltas Before Step 2 Begins
+## Appendix B — Workflow Review Deltas (Status Log)
 
-Reviewed 2026-04-17. Items flagged by the workflow review but not yet applied — M to decide which to adopt.
+Reviewed 2026-04-17 by the workflow-review agent. Resolved 2026-04-25 by M.
 
-1. **Validate MONGO_URI in setup.py.** Reject empty input before writing `.env`; today the script accepts `<mongo_uri>` and defers the failure to runtime.
-2. **`requirements-lock.txt`.** Run `pip freeze > requirements-lock.txt` after install, commit, and install from the lock file going forward. Prevents transitive-dependency drift between M/L/J machines.
-3. **Stratified validation set.** The 1,000-per-country val set is not stratified by damage class. Use `sklearn.model_selection.StratifiedShuffleSplit` on (country, class) pairs when writing `src/data/split.py`.
-4. **Phase 0 → Phase 1 gate.** Add explicit pass criterion at end of Step 3: *Phase 0 YOLO11s must reach mAP@0.5 > 0.58 on val before submitting any A100 job.*
-5. **Multi-seed runs in Phase 1.** Train YOLO11s and YOLO11m with seeds `[42, 123, 456]` and report mean ± std F1. Without this, the YOLO11s vs YOLO11m comparison is a single-sample claim.
-6. **Ablation control in Phase 0.** Also run YOLO11m with Phase 0 hyperparams (batch=8, epochs=50, 10% data) so the Phase 1 jump isolates dataset scale from model size.
-7. **Synthetic mini-dataset.** `tests/data/tiny_rdd2022/` with 5 images × 2 countries × all 4 classes — lets Step 2 code be smoke-tested in seconds, not hours.
-8. **MLflow tracking URI documented.** Decide and document whether runs log to a shared URI or per-machine `./mlruns/`. Today `setup.py` enables MLflow without specifying a backend.
-9. **Secret rotation plan.** Credentials from old `.env` commits are still in repo history. Decide between (a) rotating the Atlas password and leaving history, or (b) BFG/`git filter-repo` to purge.
+### Adopted (incorporated into the steps above)
+
+- **3. Stratified validation set.** Built into Step 2 `split.py` task. Val set stratified by (country, dominant damage class) via `StratifiedShuffleSplit`.
+- **7. Synthetic mini-dataset.** `tests/data/tiny_rdd2022/` is now part of Step 2 deliverables, and is **reused as the cluster smoke test** in Step 4 before any A100 job is queued.
+- **8. MLflow tracking URI.** Decision documented in *Non-Negotiable Rules*: per-machine `./mlruns/` is the convention. MongoDB remains the cross-machine source of truth.
+
+### Rejected (with rationale)
+
+- **1. Validate MONGO_URI in setup.py.** Low payoff — the runtime failure on first connection is already loud and explicit; an extra validation in `setup.py` only catches one specific error class (placeholder strings) and adds maintenance.
+- **2. `requirements-lock.txt`.** Rejected for now: the dependency surface is small (9 pinned top-level packages), the project is short-lived, and pinning transitives also locks platform-specific wheels which complicates the laptop / 4060 / A100 trio. Revisit if a transitive-dep drift bites us.
+- **4. Phase 0 → Phase 1 gate.** Folded into the broader Phase 0 sandbox philosophy in Step 3. A hard mAP threshold is too brittle given Phase 0's iterative nature; the gate is judgement-based: *promote YOLO11s to A100 only when F1 on val has plateaued and the workflow is exercised end-to-end*.
+- **5. Multi-seed runs in Phase 1.** Out of scope for the 3-month timeline. Reporting will note "single-seed result" as a limitation. Reconsider only if cluster time is abundant near the deadline.
+- **6. Ablation control in Phase 0.** Redundant given the actual plan: YOLO11s is trained at `SAMPLE_RATIO=1.0` in Phase 0/laptop, and YOLO11s is also trained in Phase 1/cluster with the same hyperparams as YOLO11m. The s-vs-m comparison at fixed hyperparams is therefore covered without a dedicated Phase 0 YOLO11m run.
+- **9. Secret rotation plan.** Resolved 2026-04-19. Credentials in old history are stale (wrong passwords L originally committed that never worked). The working password was leaked only in a private chat transcript. Net exposure: zero. No rotation, no history rewrite. See `DOCUMENTATION/IN DETAIL/mongo.md` §2 if Atlas creds ever need to be rotated in the future.
