@@ -7,14 +7,17 @@ Each document follows the schema defined in RDDS_Dev_Steps.md §STEP 2:
     image_id  : MD5 hash of relative filepath
     filepath  : e.g. "Japan/train/00001.jpg"
     country   : e.g. "Japan"
-    split     : "train" | "val" | "test"
+    split     : "train" | "val" | "test" | "excluded"
     width     : int
     height    : int
     annotations: list of {label, xmin, ymin, xmax, ymax}
 
-The script is idempotent: images whose ``image_id`` already exists in the
-collection are skipped (not updated).  This makes it safe to re-run after
-partial ingestion.
+ALL images are ingested, including those assigned ``"excluded"`` by split.py.
+This means MongoDB is the complete source of truth for the dataset.  When
+SAMPLE_RATIO changes, re-run split.py then ingest.py — the ``split`` field
+is updated via upsert ($set) so the training filter picks up the new set.
+
+Training scripts filter by ``split="train"`` to get the active training set.
 
 Prerequisites:
     - convert.py has been run (YOLO .txt files exist).
@@ -37,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from pymongo import UpdateOne
 
 from src.db.connection import get_db
 
@@ -147,9 +151,7 @@ def _build_documents(
                 rel_path = f"{country}/{official_split}/{img_path.name}"
                 img_id = _image_id(rel_path)
 
-                assigned_split = splits.get(img_id)
-                if assigned_split is None or assigned_split == "excluded":
-                    continue
+                assigned_split = splits.get(img_id, "excluded")
 
                 xml_path = ann_dir / f"{img_path.stem}.xml" if ann_dir.exists() else None
                 if xml_path and xml_path.exists():
@@ -179,47 +181,44 @@ def _build_documents(
     return docs
 
 
-def ingest(data_root: Path, batch_size: int = 500) -> int:
-    """Ingest image metadata into MongoDB.
+def ingest(data_root: Path, batch_size: int = 500) -> tuple[int, int]:
+    """Ingest image metadata into MongoDB via upsert.
 
-    Skips images whose ``image_id`` already exists (idempotent).
+    All images are upserted — new ones are inserted, existing ones get their
+    ``split`` field updated.  Safe to re-run after split.py changes the ratio.
 
     Args:
         data_root: Root of the RDD2022 dataset.
-        batch_size: Number of documents per bulk-write batch.
+        batch_size: Number of operations per bulk-write batch.
 
     Returns:
-        Number of new documents inserted.
+        Tuple of (n_inserted, n_updated).
     """
     db = get_db()
     col = db["images_metadata"]
 
     splits = _load_splits()
     docs = _build_documents(data_root, splits)
+    print(f"Total images: {len(docs)}")
 
-    print(f"Total images to consider: {len(docs)}")
+    inserted = updated = 0
+    for i in range(0, len(docs), batch_size):
+        batch = docs[i : i + batch_size]
+        ops = [
+            UpdateOne(
+                {"image_id": d["image_id"]},
+                {"$set": d},
+                upsert=True,
+            )
+            for d in batch
+        ]
+        result = col.bulk_write(ops, ordered=False)
+        inserted += result.upserted_count
+        updated += result.modified_count
+        print(f"  Batch {i // batch_size + 1}: {result.upserted_count} new, {result.modified_count} updated")
 
-    # Fetch existing image_ids to skip
-    existing_ids: set[str] = set(
-        d["image_id"] for d in col.find({}, {"image_id": 1, "_id": 0})
-    )
-    new_docs = [d for d in docs if d["image_id"] not in existing_ids]
-    print(f"Already in MongoDB: {len(existing_ids)} | New: {len(new_docs)}")
-
-    if not new_docs:
-        print("Nothing to insert. Collection is up to date.")
-        return 0
-
-    # Bulk insert in batches
-    inserted = 0
-    for i in range(0, len(new_docs), batch_size):
-        batch = new_docs[i : i + batch_size]
-        result = col.insert_many(batch, ordered=False)
-        inserted += len(result.inserted_ids)
-        print(f"  Inserted batch {i // batch_size + 1}: {len(result.inserted_ids)} docs")
-
-    print(f"\nIngestion complete: {inserted} new documents written to images_metadata.")
-    return inserted
+    print(f"\nIngestion complete: {inserted} inserted, {updated} updated.")
+    return inserted, updated
 
 
 def _parse_args() -> argparse.Namespace:

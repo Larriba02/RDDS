@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.3 — April 2026*
+*Version 1.4 — April 2026*
 
 This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -18,7 +18,7 @@ This document is a step-by-step development guide. It is designed to be pasted i
 - **Architecture:** YOLO11s (baseline) + YOLO11m (main). COCO pretrained weights, fine-tuned.
 - **Timeline:** ~2 months to final results.
 - **Full pipeline reference:** RDDS_Pipeline.md (v2.0)
-- **Claude memory document:** RDDS_Claude_Memory.md (paste at start of any new conversation)
+- **Claude standing context:** CLAUDE.md (loaded automatically by Claude Code; contains rules, conventions, and resource pointers)
 
 ---
 
@@ -195,9 +195,9 @@ python -m src.data.upload_to_cloud
 ```
 
 ### Done when
-- [ ] MongoDB `images_metadata` populated with all 7 countries.
-- [ ] `logs/class_distribution.json` exists and shows per-class counts per country.
-- [ ] Any team member can pull the processed dataset from Backblaze B2.
+- [x] MongoDB `images_metadata` populated with all 7 countries (19,170 documents: China_Drone 1140, China_MotorBike 1597, Czech 1891, India 3629, Japan 4577, Norway 3756, United_States 2580).
+- [x] `logs/class_distribution.json` exists and shows per-class counts per country (cls_weights computed).
+- [ ] Any team member can pull the processed dataset from Backblaze B2 — pending verification by L or J.
 
 ---
 
@@ -231,7 +231,7 @@ cls_weight:   from class_distribution.json
 ### Tasks
 - [ ] `src/training/train.py` — Ultralytics YOLO11 training script.
 - [ ] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
-- [ ] `src/training/promote.py` — compare new model mAP vs current `is_production` model.
+- [ ] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A).
 
 ### Done when
 - Training completes without errors.
@@ -268,7 +268,7 @@ seed:         42
 
 ### Done when
 - YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.
-- mAP@0.5 in expected range 0.82–0.88.
+- F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.
 
 ---
 
@@ -349,12 +349,13 @@ seed:         42
 ```
 rdds/
 ├── DOCUMENTATION/
-│   ├── RDDS_Technical_Document.docx
+│   ├── RDDS_Technical_Document_v3.docx
 │   ├── RDDS_Dev_Steps.md
 │   ├── RDDS_Pipeline.md
 │   └── IN DETAIL/
 │       ├── setup.md
 │       ├── mongo.md
+│       ├── data.md
 │       ├── training.md
 │       ├── inference.md
 │       ├── retraining.md
@@ -396,10 +397,10 @@ rdds/
 ├── outputs/
 ├── CLAUDE.md
 ├── .claude/
-│   ├── commands/             # /smoke-test, /rdds-review, /sync-docs, /debug-mongo
+│   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
 │   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
 │   │                         # doc-syncer, step-implementer
-│   ├── hooks/
+│   ├── hooks/                # block-push-without-review.py
 │   └── settings.json
 ├── setup.py
 ├── .env.example

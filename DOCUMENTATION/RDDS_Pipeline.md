@@ -1,6 +1,6 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.0 — March 2026*
+*Version 2.1 — April 2026*
 
 ---
 
@@ -459,7 +459,7 @@ Fine-tuning from an existing checkpoint is faster (converges in fewer epochs), t
 cp -r /shared/rdd2022_processed $TMPDIR/rdd2022
 
 source activate rdds
-python train.py --data $TMPDIR/rdd2022 --model yolo11m --batch 32 --epochs 100
+python -m src.training.train --model yolo11m --batch 32 --epochs 100 --data $TMPDIR/rdd2022
 ```
 
 ### Shared Database Strategy

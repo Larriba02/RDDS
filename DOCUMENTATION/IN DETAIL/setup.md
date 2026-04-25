@@ -98,9 +98,14 @@ same library versions.
 
 ### Create and activate
 
+**Always create the venv with the explicit Python 3.12 interpreter.** If your
+shell's `python` points to 3.13 or 3.14, a plain `python -m venv .venv` will
+create a 3.13/3.14 venv and `pip install` will fail building Pillow and torch
+wheels. Use the versioned invocation below.
+
 **Windows**
 ```bash
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 ```
 
@@ -112,7 +117,7 @@ This allows local scripts to run without changing the global security policy.
 
 **Mac/Linux**
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -240,10 +245,12 @@ rdds/
 │   ├── RDDS_Pipeline.md
 │   └── IN DETAIL/
 │       ├── setup.md          ← this document
-│       ├── mongodb.md
+│       ├── mongo.md
+│       ├── data.md
 │       ├── training.md
 │       ├── inference.md
-│       └── retraining.md
+│       ├── retraining.md
+│       └── ai_assistance.md
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
 ├── src/
