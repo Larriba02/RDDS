@@ -1,10 +1,10 @@
 ---
-description: Review the current branch's changes against `dev` before merging.
+description: Run a local code-review of the current branch against a base branch (no GitHub app needed).
 allowed-tools: Bash, Read, Grep, Glob, Task
 argument-hint: "[base-branch]  default: dev"
 ---
 
-# /review-pr
+# /rdds-review
 
 Run a strict code review of the changes on the current branch against the base
 branch (default `dev`). The review is delegated to the `code-reviewer`

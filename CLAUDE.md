@@ -111,7 +111,7 @@ RDDS/
 │   └── train_cluster.sh                   # SLURM sbatch
 └── .claude/
     ├── settings.json                      # hooks
-    ├── commands/                          # /smoke-test, /review-pr, /sync-docs, /debug-mongo
+    ├── commands/                          # /smoke-test, /rdds-review, /sync-docs, /debug-mongo
     └── agents/                            # subagents (see §8)
 ```
 
@@ -163,7 +163,7 @@ Defined in `.claude/agents/`. Invoke with the Task tool when needed.
 Defined in `.claude/commands/`.
 
 - `/smoke-test` — runs `setup_atlas` + `test_connection` and interprets the result.
-- `/review-pr` — wraps an invocation of `code-reviewer` over the current branch
+- `/rdds-review` — wraps an invocation of `code-reviewer` over the current branch
   diff against `dev`.
 - `/sync-docs` — wraps `doc-syncer` over the recently changed code.
 - `/debug-mongo` — wraps `mongo-debugger` for an Atlas / pymongo error you paste in.

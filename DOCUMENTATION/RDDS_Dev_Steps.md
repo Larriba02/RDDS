@@ -369,7 +369,7 @@ rdds/
 ├── outputs/
 ├── CLAUDE.md
 ├── .claude/
-│   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
+│   ├── commands/             # /smoke-test, /rdds-review, /sync-docs, /debug-mongo
 │   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
 │   │                         # doc-syncer, step-implementer
 │   ├── hooks/

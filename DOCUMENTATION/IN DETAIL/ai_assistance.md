@@ -82,7 +82,7 @@ Concretely:
 | Sanity-checking PRs before merge to `dev` or `main` | Yes (mandatory) | M decides merge |
 | Updating documentation when code changes | Yes (mandatory) | M reviews |
 
-Mandatory items run through the slash commands `/review-pr` and `/sync-docs`
+Mandatory items run through the slash commands `/rdds-review` and `/sync-docs`
 and the corresponding subagents (see §5).
 
 ---
@@ -150,7 +150,7 @@ Markdown files defining short, repeatable workflows the user invokes by typing
 - **`/smoke-test`** — runs `python -m src.db.setup_atlas` and
   `python -m src.db.test_connection` and interprets the result. Routes
   failures to `mongo-debugger`.
-- **`/review-pr [base-branch]`** — captures the diff vs the base branch
+- **`/rdds-review [base-branch]`** — captures the diff vs the base branch
   (default `dev`), invokes `code-reviewer`, and reports findings grouped as
   Blockers / Should fix / Nits.
 - **`/sync-docs`** — invokes `doc-syncer` to detect and patch drift between
@@ -210,7 +210,7 @@ OpenAI's Codex CLI implements equivalents to the four building blocks above:
 
 - **Custom slash commands (custom prompts)** in `~/.codex/prompts/` as
   Markdown files. **Not portable** for the same reason. The four `/smoke-test`,
-  `/review-pr`, `/sync-docs`, `/debug-mongo` commands would need to be
+  `/rdds-review`, `/sync-docs`, `/debug-mongo` commands would need to be
   recreated per developer.
 
 - **Hooks** are configurable in `~/.codex/config.toml` and observe MCP tools
@@ -359,7 +359,7 @@ For every commit that contains AI-authored code:
 
 For every PR before merging:
 
-4. `/review-pr` to invoke `code-reviewer`.
+4. `/rdds-review` to invoke `code-reviewer`.
 5. Read the verdict. Apply blockers and should-fix items.
 6. Push (`block-push-without-review` hook will require the marker).
 7. Merge manually.
