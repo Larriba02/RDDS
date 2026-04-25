@@ -205,3 +205,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Data y artefactos del modelo
+data/
+checkpoints/
+runs/
+mlruns/
+outputs/
+logs/
+
+# VSCode
+.vscode/
+
+# Obsidian
+.obsidian/
+
+# Claude Code — per-developer review marker (managed by the
+# block-push-without-review hook). Configuration in .claude/ IS committed.
+.claude/.review-marker
