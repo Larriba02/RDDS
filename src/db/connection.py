@@ -34,7 +34,7 @@ def _get_client() -> MongoClient:
             "MONGO_URI is not set. "
             "Copy .env.example to .env and fill in the connection string."
         )
-    return MongoClient(uri)
+    return MongoClient(uri, serverSelectionTimeoutMS=5000)
 
 
 def get_db() -> Database:

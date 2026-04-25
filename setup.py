@@ -38,6 +38,11 @@ def configure_env():
     values["RDD_DATA_ROOT"] = "<set this when dataset is downloaded in Step 2>"
 
     env_path = Path(".env")
+    if env_path.exists():
+        print("\nWARNING: .env already exists. Overwrite? [y/N] ", end="", flush=True)
+        if input().strip().lower() != "y":
+            print("Aborted. Existing .env kept.")
+            return
     with open(env_path, "w") as f:
         for key, value in values.items():
             f.write(f"{key}={value}\n")
