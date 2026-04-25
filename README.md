@@ -73,6 +73,25 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    points to the 3.12 interpreter inside `.venv`. You do **not** need to use
    `py -3.12` for these commands — only at venv creation time.
 
+6. Data ingestion (Step 2 — run once by M, teammates pull from cloud)
+   ```
+   python -m src.data.download            # download RDD2022 ZIPs
+   python -m src.data.validate            # validate annotations, log discards
+   python -m src.data.convert             # PascalVOC XML → YOLO .txt
+   python -m src.data.analyse_distribution  # class distribution → logs/
+   python -m src.data.split               # assign train/val/test splits
+   python -m src.data.ingest              # write metadata to MongoDB
+   python -m src.data.upload_to_cloud     # upload labels + logs to B2
+   ```
+
+   To smoke-test the pipeline in seconds (no real dataset needed):
+   ```
+   python -m src.data.validate   --data-root tests/data/tiny_rdd2022
+   python -m src.data.convert    --data-root tests/data/tiny_rdd2022
+   python -m src.data.analyse_distribution --data-root tests/data/tiny_rdd2022
+   python -m src.data.split      --data-root tests/data/tiny_rdd2022
+   ```
+
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
 In the meantime you can still clone the repo, set up the environment,

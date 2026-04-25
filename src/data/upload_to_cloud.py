@@ -95,12 +95,13 @@ def _upload_file(client, bucket: str, local_path: Path, b2_key: str) -> None:
     client.upload_file(str(local_path), bucket, b2_key, ExtraArgs=extra)
 
 
-def _upload_batch(client, bucket: str, jobs: list[tuple[Path, str]], workers: int) -> int:
+def _upload_batch(client, bucket: str, jobs: list[tuple[Path, str]], workers: int) -> tuple[int, int]:
     """Upload a list of (local_path, b2_key) pairs in parallel.
 
-    Returns the number of files successfully uploaded.
+    Returns (n_succeeded, n_failed).
     """
     done = 0
+    failed = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(_upload_file, client, bucket, local, key): key
@@ -113,11 +114,12 @@ def _upload_batch(client, bucket: str, jobs: list[tuple[Path, str]], workers: in
                 done += 1
                 print(f"  [{done}/{len(jobs)}] {key}")
             except Exception as exc:
+                failed += 1
                 print(f"  [FAIL] {key} — {exc}")
-    return done
+    return done, failed
 
 
-def upload_logs(client, bucket: str, workers: int) -> None:
+def upload_logs(client, bucket: str, workers: int) -> tuple[int, int]:
     log_dir = Path("logs")
     jobs = []
     for fname in ("class_distribution.json", "splits.json"):
@@ -126,11 +128,10 @@ def upload_logs(client, bucket: str, workers: int) -> None:
             jobs.append((local, f"rdd2022/logs/{fname}"))
         else:
             print(f"  [skip] {local} not found.")
-    if jobs:
-        _upload_batch(client, bucket, jobs, workers)
+    return _upload_batch(client, bucket, jobs, workers) if jobs else (0, 0)
 
 
-def upload_labels(client, bucket: str, data_root: Path, workers: int) -> int:
+def upload_labels(client, bucket: str, data_root: Path, workers: int) -> tuple[int, int]:
     jobs = []
     for country_dir in sorted(data_root.iterdir()):
         if not country_dir.is_dir() or country_dir.name.startswith("_"):
@@ -141,12 +142,11 @@ def upload_labels(client, bucket: str, data_root: Path, workers: int) -> int:
             if not img_dir.exists():
                 continue
             for txt_path in sorted(img_dir.glob("*.txt")):
-                b2_key = f"rdd2022/{country}/{split}/labels/{txt_path.name}"
-                jobs.append((txt_path, b2_key))
+                jobs.append((txt_path, f"rdd2022/{country}/{split}/labels/{txt_path.name}"))
     return _upload_batch(client, bucket, jobs, workers)
 
 
-def upload_images(client, bucket: str, data_root: Path, workers: int) -> int:
+def upload_images(client, bucket: str, data_root: Path, workers: int) -> tuple[int, int]:
     jobs = []
     for country_dir in sorted(data_root.iterdir()):
         if not country_dir.is_dir() or country_dir.name.startswith("_"):
@@ -158,8 +158,7 @@ def upload_images(client, bucket: str, data_root: Path, workers: int) -> int:
                 continue
             for ext in ("*.jpg", "*.png"):
                 for img_path in sorted(img_dir.glob(ext)):
-                    b2_key = f"rdd2022/{country}/{split}/images/{img_path.name}"
-                    jobs.append((img_path, b2_key))
+                    jobs.append((img_path, f"rdd2022/{country}/{split}/images/{img_path.name}"))
     return _upload_batch(client, bucket, jobs, workers)
 
 
@@ -170,19 +169,25 @@ def upload_dataset(
 ) -> None:
     client = _b2_client()
     bucket = _bucket_name()
+    total_failed = 0
 
     print("Uploading log files …")
-    upload_logs(client, bucket, workers)
+    _, f = upload_logs(client, bucket, workers)
+    total_failed += f
 
     print("\nUploading YOLO label files …")
-    n_labels = upload_labels(client, bucket, data_root, workers)
+    n_labels, f = upload_labels(client, bucket, data_root, workers)
+    total_failed += f
     print(f"  {n_labels} label files uploaded.")
 
     if include_images:
         print("\nUploading image files (this may take a long time) …")
-        n_images = upload_images(client, bucket, data_root, workers)
+        n_images, f = upload_images(client, bucket, data_root, workers)
+        total_failed += f
         print(f"  {n_images} image files uploaded.")
 
+    if total_failed:
+        raise RuntimeError(f"Upload finished with {total_failed} failure(s). Check output above.")
     print("\nUpload complete.")
 
 
