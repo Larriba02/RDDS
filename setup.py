@@ -35,7 +35,9 @@ def configure_env():
     # Fixed values — not configurable
     values["RANDOM_SEED"] = "42"
     values["SAMPLE_RATIO"] = "0.10"
-    values["RDD_DATA_ROOT"] = "<set this when dataset is downloaded in Step 2>"
+    rdd_data_root = Path(__file__).parent / "data" / "rdd2022"
+    rdd_data_root.mkdir(parents=True, exist_ok=True)
+    values["RDD_DATA_ROOT"] = str(rdd_data_root)
 
     env_path = Path(".env")
     if env_path.exists():

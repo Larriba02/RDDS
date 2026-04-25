@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.2 — March 2026*
+*Version 1.3 — April 2026*
 
 This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -67,16 +67,16 @@ and the environment is fully configured and verified.
 **Goal:** MongoDB Atlas cluster running with correct collections and schemas. All team members can connect.
 
 ### Tasks
-- [ ] Create MongoDB Atlas free tier cluster.
-- [ ] Create database `rdds` with three collections: `images_metadata`, `experiments`, `predictions`.
-- [ ] Create indexes:
+- [x] Create MongoDB Atlas free tier cluster.
+- [x] Create database `rdds` with three collections: `images_metadata`, `experiments`, `predictions`.
+- [x] Create indexes:
   - `images_metadata`: index on `country`, `split`, `image_id`
   - `experiments`: index on `is_production`, `status`, `model`
   - `predictions`: index on `image_id`, `model_version`
-- [ ] Share connection URI with team. Store in `.env` as `MONGO_URI`.
-- [ ] Write `src/db/connection.py` — single function `get_db()` that returns the database handle using `MONGO_URI` from `.env`.
-- [ ] Write `src/db/setup_atlas.py` — idempotent script that creates the three collections and all required indexes.
-- [ ] Write a smoke test: `python -m src.db.test_connection` — connects, inserts/reads/deletes a sentinel document in each collection, prints OK.
+- [x] Share connection URI with team. Store in `.env` as `MONGO_URI`.
+- [x] Write `src/db/connection.py` — single function `get_db()` that returns the database handle using `MONGO_URI` from `.env`.
+- [x] Write `src/db/setup_atlas.py` — idempotent script that creates the three collections and all required indexes.
+- [x] Write a smoke test: `python -m src.db.test_connection` — connects, inserts/reads/deletes a sentinel document in each collection, prints OK.
 
 ### MongoDB Schemas
 
@@ -133,44 +133,71 @@ and the environment is fully configured and verified.
 
 ---
 
-## ⏳ STEP 2 — Data Ingestion
+## 🔄 STEP 2 — Data Ingestion
 
 **Owner:** M  
+**Status:** Code implemented and smoke-tested on tiny dataset. **Step not complete — real pipeline run pending.**  
 **Goal:** RDD2022 downloaded, validated, converted to YOLO format, split, uploaded to cloud, and metadata written to MongoDB. Done once by M. All other machines pull from cloud.
 
-### Tasks
-- [ ] `src/data/download.py` — download country ZIPs from Sekilab S3 to local disk.
+### Code tasks (done — committed to dev)
+- [x] `src/data/download.py` — download country ZIPs from Sekilab S3 to local disk.
   ```
   https://bigdatacup.s3.ap-northeast-1.amazonaws.com/2022/CRDDC2022/RDD2022/Country_Specific_Data_CRDDC2022/RDD2022_{country}.zip
   ```
   Countries: Japan, India, Czech, Norway, United_States, China_MotorBike, China_Drone
 
-- [ ] `src/data/validate.py` — parse every PascalVOC XML, discard bboxes where:
+- [x] `src/data/validate.py` — parse every PascalVOC XML, discard bboxes where:
+  - label not in {D00, D10, D20, D40}
   - xmin < 0 or ymin < 0
   - xmax > image width or ymax > image height
   - area == 0 (degenerate)
   Log all discarded samples to `logs/discarded_annotations.txt`.
 
-- [ ] `src/data/convert.py` — PascalVOC XML → YOLO `.txt` format.
-  Class map: D00=0, D10=1, D20=2, D40=3. One `.txt` per image, same name.
+- [x] `src/data/convert.py` — PascalVOC XML → YOLO `.txt` format.
+  Class map: D00=0, D10=1, D20=2, D40=3. One `.txt` per image, same name. Idempotent (skip existing unless --force).
 
-- [ ] `src/data/analyse_distribution.py` — count instances per class per country. Print distribution table. Save to `logs/class_distribution.json`. **This output calibrates cls_weight in training — do not skip.**
+- [x] `src/data/analyse_distribution.py` — count instances per class per country. Print distribution table. Save to `logs/class_distribution.json`. **This output calibrates cls_weight in training — do not skip.**
 
-- [ ] `src/data/split.py` — respect official RDD2022 train/test partitions. Within the official train split:
+- [x] `src/data/split.py` — respect official RDD2022 train/test partitions. Within the official train split:
   - Reserve fixed 1,000 images per country for validation. **Stratified by (country, dominant damage class)** using `sklearn.model_selection.StratifiedShuffleSplit` so the val set preserves class balance per country, not just country balance. The dominant class per image is the most frequent label among its bboxes; ties broken by alphabetical order.
   - Remaining train images sampled at `SAMPLE_RATIO` stratified by country.
   - `image_id` = MD5 hash of relative filepath.
+  - Saves `logs/splits.json` and `logs/split_summary.txt`.
 
-- [ ] `tests/data/tiny_rdd2022/` — **synthetic mini-dataset** committed to the repo: 5 images × 2 countries (Japan, Czech) × all 4 classes (D00, D10, D20, D40). Lets every step from validation through training be smoke-tested in seconds. Reused in Step 4 as the *cluster smoke test* before any A100 job: `sbatch` a 1-epoch run on the tiny dataset to confirm SLURM, CUDA, and Mongo writes work end-to-end on the cluster node before queueing the real run.
+- [x] `tests/data/tiny_rdd2022/` — **synthetic mini-dataset** committed to the repo: 5 images × 2 countries (Japan, Czech) × all 4 classes (D00, D10, D20, D40). Lets every step from validation through training be smoke-tested in seconds. Reused in Step 4 as the *cluster smoke test* before any A100 job: `sbatch` a 1-epoch run on the tiny dataset to confirm SLURM, CUDA, and Mongo writes work end-to-end on the cluster node before queueing the real run.
+  Generated by `tests/data/generate_tiny_dataset.py`.
 
-- [ ] `src/data/ingest.py` — write one document per image to MongoDB `images_metadata`. Skip if `image_id` already exists (idempotent).
+- [x] `src/data/ingest.py` — write one document per image to MongoDB `images_metadata`. Skip if `image_id` already exists (idempotent). Reads `logs/splits.json` for split assignments.
 
-- [ ] `src/data/upload_to_cloud.py` — upload processed dataset to cloud storage.
+- [x] `src/data/upload_to_cloud.py` — upload processed dataset (labels + logs) to Backblaze B2. Pass `--include-images` to also upload image files.
+
+### Manual completion — M must run this once on a machine with enough disk (~100 GB free)
+
+```bash
+# 1. Download (~60 GB, skips existing ZIPs)
+python -m src.data.download
+
+# 2. Validate + convert (idempotent)
+python -m src.data.validate
+python -m src.data.convert
+
+# 3. Analyse distribution — produces logs/class_distribution.json needed for training
+python -m src.data.analyse_distribution
+
+# 4. Split — produces logs/splits.json
+python -m src.data.split
+
+# 5. Ingest into MongoDB
+python -m src.data.ingest
+
+# 6. Upload to Backblaze B2 (labels + logs; add --include-images for full dataset)
+python -m src.data.upload_to_cloud
+```
 
 ### Done when
-- MongoDB `images_metadata` populated with all countries.
-- `logs/class_distribution.json` exists and shows per-class counts.
-- Any team member can pull the processed dataset.
+- [ ] MongoDB `images_metadata` populated with all 7 countries.
+- [ ] `logs/class_distribution.json` exists and shows per-class counts per country.
+- [ ] Any team member can pull the processed dataset from Backblaze B2.
 
 ---
 
