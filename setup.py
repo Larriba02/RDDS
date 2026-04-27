@@ -25,6 +25,7 @@ def configure_env():
         "BACKBLAZE_KEY_ID": "Backblaze B2 Key ID (shared by M)",
         "BACKBLAZE_APP_KEY": "Backblaze B2 Application Key (shared by M)",
         "BACKBLAZE_BUCKET": "Backblaze bucket name (shared by M)",
+        "BACKBLAZE_ENDPOINT": "Backblaze B2 endpoint URL (shared by M, e.g. https://s3.eu-central-003.backblazeb2.com)",
     }
 
     values = {}
