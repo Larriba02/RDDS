@@ -44,20 +44,29 @@ def test_b2() -> None:
             aws_secret_access_key=app_key,
             config=Config(signature_version="s3v4"),
         )
-        # Get total object count
+        # Get total object count and detect unexpected files
         total = 0
+        unexpected = []
         paginator = client.get_paginator("list_objects_v2")
         first_page = True
         sample = []
         for page in paginator.paginate(Bucket=bucket):
             total += page.get("KeyCount", 0)
-            if first_page:
-                sample = [obj["Key"] for obj in page.get("Contents", [])[:5]]
-                first_page = False
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if first_page and len(sample) < 5:
+                    sample.append(key)
+                if not key.startswith("rdd2022/"):
+                    unexpected.append(key)
+            first_page = False
 
         print(f"[B2] OK — bucket '{bucket}' accessible ({total} objects total)")
         for key in sample:
             print(f"  {key}")
+        if unexpected:
+            print(f"\n  WARNING: {len(unexpected)} unexpected file(s) outside rdd2022/:")
+            for key in unexpected[:10]:
+                print(f"    {key}")
     except ClientError as exc:
         print(f"[B2] FAIL — {exc}")
         sys.exit(1)
