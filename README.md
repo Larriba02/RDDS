@@ -92,6 +92,28 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    python -m src.data.split      --data-root tests/data/tiny_rdd2022
    ```
 
+7. Training (Step 3 — Phase 0 laptop baseline)
+   ```
+   # Phase 0: grow from 10% to 100% to map F1-vs-data curve
+   python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 0.25 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 0.50 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 1.00 --epochs 50 --batch 8 --patience 15
+   ```
+
+   Prerequisites: Step 2 must be complete (splits.json and MongoDB images_metadata populated).
+   Each run writes to MongoDB, uploads checkpoints to B2, logs to MLflow, and conditionally promotes.
+
+   To smoke-test training without real data or B2 credentials:
+   ```
+   # Ingest tiny dataset into MongoDB first (requires MONGO_URI in .env)
+   python -m src.data.split     --data-root tests/data/tiny_rdd2022
+   python -m src.data.ingest    --data-root tests/data/tiny_rdd2022
+
+   # 1-epoch run, no B2 upload, no promotion
+   python -m src.training.train --model yolo11s --sample-ratio 1.0 --epochs 1 --batch 2 --skip-upload --skip-promote
+   ```
+
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
 In the meantime you can still clone the repo, set up the environment,

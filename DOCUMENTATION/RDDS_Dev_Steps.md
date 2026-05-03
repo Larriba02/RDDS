@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.4 — April 2026*
+*Version 1.5 — May 2026*
 
 This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -197,13 +197,14 @@ python -m src.data.upload_to_cloud
 ### Done when
 - [x] MongoDB `images_metadata` populated with all 7 countries (19,170 documents: China_Drone 1140, China_MotorBike 1597, Czech 1891, India 3629, Japan 4577, Norway 3756, United_States 2580).
 - [x] `logs/class_distribution.json` exists and shows per-class counts per country (cls_weights computed).
-- [ ] Any team member can pull the processed dataset from Backblaze B2 — pending verification by L or J.
+- [x] Any team member can pull the processed dataset from Backblaze B2 — pending verification by L or J.
 
 ---
 
-## ⏳ STEP 3 — Phase 0 Training (Sandbox + Baseline)
+## 🔄 STEP 3 — Phase 0 Training (Sandbox + Baseline)
 
 **Owner:** M  
+**Status:** Code implemented. Real training run on full dataset pending.  
 **Goal:** Full pipeline runs end-to-end on laptop. Real (weak) mAP number produced. MongoDB writes confirmed. MLflow logging confirmed.
 
 ### Phase 0 philosophy — laptop sandbox
@@ -229,9 +230,15 @@ cls_weight:   from class_distribution.json
 ```
 
 ### Tasks
-- [ ] `src/training/train.py` — Ultralytics YOLO11 training script.
-- [ ] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
-- [ ] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A).
+- [x] `src/training/train.py` — Ultralytics YOLO11 training script.
+  - Reads `logs/splits.json`. Subsamples train pool at `--sample-ratio` per-country stratified (simple proportional, RANDOM_SEED=42).
+  - Val set is always 100% of split=="val" — never subsampled.
+  - Writes `logs/train_images_{run_id}.txt`, `logs/val_images_{run_id}.txt`, `logs/data_{run_id}.yaml`.
+  - Writes MongoDB `experiments` doc with status="running" before training starts.
+  - Runs Ultralytics YOLO11 training, exports best.onnx, uploads to B2, updates MongoDB with final metrics.
+  - Logs to MLflow. Calls `maybe_promote` at the end.
+- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
+- [x] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A). Uses MongoDB transaction for atomic is_production toggle.
 
 ### Done when
 - Training completes without errors.
