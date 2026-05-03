@@ -58,7 +58,10 @@ def _data_root(override: Path | None = None) -> Path:
 
 
 def _xml_to_yolo_lines(
-    xml_path: Path, width: int, height: int
+    xml_path: Path,
+    width: int,
+    height: int,
+    discards: list[str] | None = None,
 ) -> list[str]:
     """Convert one XML file to a list of YOLO annotation lines.
 
@@ -69,6 +72,8 @@ def _xml_to_yolo_lines(
         xml_path: Path to the PascalVOC XML annotation file.
         width: Image width in pixels (from XML <size>).
         height: Image height in pixels (from XML <size>).
+        discards: Optional list to which discard records are appended.
+            Each entry is a tab-separated string: path, label, coords, reason.
 
     Returns:
         List of YOLO-format strings ready to be joined with newlines.
@@ -76,14 +81,18 @@ def _xml_to_yolo_lines(
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
-    # Prefer width/height from the XML <size> block (already parsed by caller)
+    def _discard(label: str, coords: str, reason: str) -> None:
+        if discards is not None:
+            discards.append(f"{xml_path}\t{label}\t{coords}\t{reason}")
+
     lines: list[str] = []
     for obj in root.findall("object"):
         label = obj.findtext("name", default="").strip()
         if label not in CLASS_MAP:
-            continue
+            continue  # unknown class — out of scope, not a bbox error
         bndbox = obj.find("bndbox")
         if bndbox is None:
+            _discard(label, "N/A", "missing bndbox element")
             continue
         try:
             xmin = float(bndbox.findtext("xmin", "0"))
@@ -91,14 +100,19 @@ def _xml_to_yolo_lines(
             xmax = float(bndbox.findtext("xmax", "0"))
             ymax = float(bndbox.findtext("ymax", "0"))
         except ValueError:
+            _discard(label, "unparseable", "non-numeric coordinate")
             continue
 
+        coords_str = f"xmin={xmin},ymin={ymin},xmax={xmax},ymax={ymax}"
         # Validation (mirror validate.py rules)
         if xmin < 0 or ymin < 0:
+            _discard(label, coords_str, "negative coordinate")
             continue
         if xmax > width or ymax > height:
+            _discard(label, coords_str, f"out-of-bounds (img {width}x{height})")
             continue
         if xmin >= xmax or ymin >= ymax:
+            _discard(label, coords_str, "degenerate bbox (zero or negative area)")
             continue
 
         # YOLO normalised coords
@@ -141,11 +155,12 @@ def convert_dataset(data_root: Path, force: bool = False) -> int:
     """
     written = 0
     skipped = 0
+    all_discards: list[str] = []
 
     for country_dir in sorted(data_root.iterdir()):
         if not country_dir.is_dir() or country_dir.name.startswith("_"):
             continue
-        country = country_dir.name
+        country = country_dir.name  # noqa: F841 (used for context, not yet logged)
         for split in ("train", "test"):
             ann_dir = country_dir / split / "annotations" / "xmls"
             img_dir = country_dir / split / "images"
@@ -173,13 +188,23 @@ def convert_dataset(data_root: Path, force: bool = False) -> int:
                     # Cannot normalise without dimensions; skip silently
                     continue
 
-                lines = _xml_to_yolo_lines(xml_path, width, height)
+                lines = _xml_to_yolo_lines(xml_path, width, height, discards=all_discards)
                 label_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
                 written += 1
 
+    # Write discard log so invalid bboxes are traceable.
+    log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    discard_log = log_dir / "discarded_annotations.txt"
+    with open(discard_log, "w", encoding="utf-8") as fh:
+        fh.write("# xml_path\tlabel\tcoords\treason\n")
+        for line in all_discards:
+            fh.write(line + "\n")
+
     print(
         f"Conversion complete: {written} label files written, "
-        f"{skipped} already existed (use --force to overwrite)."
+        f"{skipped} already existed (use --force to overwrite). "
+        f"{len(all_discards)} bbox(es) discarded — see {discard_log}."
     )
     return written
 

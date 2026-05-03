@@ -34,7 +34,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pymongo import WriteConcern
 
-from src.db.connection import get_client, get_db
+from src.db.connection import DB_NAME, get_client, get_db
 
 load_dotenv()
 
@@ -175,7 +175,7 @@ def _apply_promotion(run_id: str, old_run_id: str | None, timestamp: str) -> Non
     try:
         with client_obj.start_session() as session:
             def _txn(s):
-                db = s.client[get_db().name]
+                db = s.client[DB_NAME]
                 exps = db.get_collection(
                     "experiments",
                     write_concern=WriteConcern("majority"),

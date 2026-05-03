@@ -60,10 +60,8 @@ import math
 import os
 import random
 import signal
-import shutil
 import subprocess
 import sys
-import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -763,11 +761,23 @@ def train(
 
     # ------------------------------------------------------------------
     # 13. Promote if F1 available
+    #
+    # WARNING: the F1 used here is the *training-time* value from
+    # results.csv (harmonic mean of final-epoch precision and recall on
+    # the fixed val set), NOT the CRDDC2022 protocol F1 produced by
+    # evaluate.py.  Using training-time F1 is an acceptable proxy during
+    # Phase 0 while evaluate.py is not yet implemented.  Before any Phase 1
+    # promotion, run evaluate.py and call promote.py manually with the
+    # CRDDC2022 F1 value. (CLAUDE.md §3)
     # ------------------------------------------------------------------
     if not skip_promote:
         f1 = metrics.get("F1")
         if f1 is not None:
-            print(f"\nRunning promotion check (F1={f1:.4f}) …")
+            print(f"\nRunning promotion check (training-time F1={f1:.4f}) …")
+            print(
+                "  [note] This is training-time F1. Before Phase 1 promotion, "
+                "use evaluate.py + promote.py with CRDDC2022 F1."
+            )
             outcome = maybe_promote(run_id=run_id, f1_new=f1)
             print(f"  Promotion outcome: {outcome}")
         else:

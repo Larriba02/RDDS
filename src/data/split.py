@@ -305,6 +305,13 @@ if __name__ == "__main__":
     args = _parse_args()
     root = _data_root(args.data_root)
     ratio = _sample_ratio(args.sample_ratio)
+    if ratio < 1.0:
+        print(
+            f"[warn] sample_ratio={ratio} < 1.0. This permanently excludes images "
+            "from the splits.json pool. The recommended design is to keep "
+            "SAMPLE_RATIO=1.0 here and pass --sample-ratio to train.py for "
+            "per-run subsampling. Proceeding anyway."
+        )
     print(f"Computing splits: data_root={root}, sample_ratio={ratio}")
     result = compute_splits(root, ratio)
     save_splits(result)
