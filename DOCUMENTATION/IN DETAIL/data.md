@@ -1,6 +1,6 @@
 # Data Ingestion — In Detail
 **RDDS · Step 2**  
-*Version 1.0 — April 2026*
+*Version 1.1 — May 2026*
 
 This document explains the data ingestion pipeline in depth: what each module
 does, why it is designed that way, and what to watch out for when running it
@@ -13,7 +13,7 @@ on real data.
 The ingestion pipeline converts the raw RDD2022 dataset — country ZIPs with
 JPEG images and PascalVOC XML annotations — into:
 
-1. YOLO `.txt` label files co-located with the images.
+1. YOLO `.txt` label files in a parallel `labels/` directory alongside each `images/` directory (Ultralytics convention, e.g. `Japan/train/labels/Japan_000001.txt` for `Japan/train/images/Japan_000001.jpg`).
 2. A split assignment (`train` / `val` / `test`) for every image.
 3. MongoDB documents in `images_metadata` for cross-machine access.
 4. `logs/class_distribution.json` for training class-weight calibration.
@@ -78,8 +78,7 @@ Converts clean PascalVOC XML annotations to YOLO `.txt` format.
 | D20  | 2        | Alligator crack |
 | D40  | 3        | Pothole |
 
-Each `.txt` file is placed in the same directory as the image and named
-identically (same stem). The YOLO format is:
+Each `.txt` file is placed in a parallel `labels/` directory next to the `images/` directory for its split (e.g. `Japan/train/labels/Japan_000001.txt`). This matches the Ultralytics path convention required during training. Files are named with the same stem as the image. The YOLO format is:
 
 ```
 <class_id> <x_center_norm> <y_center_norm> <width_norm> <height_norm>
@@ -134,11 +133,25 @@ Output files:
 Images excluded by `SAMPLE_RATIO < 1.0` are stored as `"excluded"` in
 `splits.json` and skipped by `ingest.py`.
 
+**Fallback for tiny datasets**: when a country has fewer images than
+`VAL_PER_COUNTRY` (1 000), stratified splitting is skipped and all images
+for that country are assigned `"train"`. This affects only the synthetic
+mini-dataset used for smoke tests.
+
+**`SAMPLE_RATIO` design note**: `split.py` should always be run with
+`SAMPLE_RATIO=1.0` (the default and the recommended value in `.env`).
+This ensures the full training pool is committed to `splits.json` and
+available to all team members. The actual fraction of training images used
+in a given experiment is controlled at run-time by `train.py --sample-ratio`
+(Phase 0 iterations use `--sample-ratio 0.10`, `0.25`, `0.50`, `1.0` in
+sequence). Do not set `SAMPLE_RATIO < 1.0` in `.env` unless you intend to
+permanently exclude images from the pool stored in MongoDB.
+
 The `image_id` is the MD5 hash of the relative filepath (e.g.
 `Japan/train/00001.jpg`). This makes IDs machine-independent: any team
 member who downloads RDD2022 independently generates the same IDs.
 
-Entry point: `python -m src.data.split [--data-root DIR] [--sample-ratio 0.10]`
+Entry point: `python -m src.data.split [--data-root DIR] [--sample-ratio RATIO]`
 
 ### `src/data/ingest.py`
 
@@ -197,7 +210,7 @@ python tests/data/generate_tiny_dataset.py
 | `BACKBLAZE_APP_KEY` | Yes (upload only) | B2 application key secret |
 | `BACKBLAZE_BUCKET` | Yes (upload only) | Bucket name |
 | `BACKBLAZE_ENDPOINT` | No | B2 S3 endpoint (default: us-west-004) |
-| `SAMPLE_RATIO` | No | Training fraction (default: 1.0) |
+| `SAMPLE_RATIO` | No | Training fraction for `split.py` (default: 1.0; keep at 1.0 — use `train.py --sample-ratio` to control per-run subsampling) |
 
 ---
 

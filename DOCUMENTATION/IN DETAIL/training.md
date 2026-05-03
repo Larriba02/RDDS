@@ -1,6 +1,6 @@
 # RDDS — Training Module (IN DETAIL)
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.0 — May 2026*
+*Version 1.1 — May 2026*
 
 This document describes the implementation of the Step 3 training pipeline:
 `src/training/train.py`, `src/training/upload_checkpoint.py`, and
@@ -67,19 +67,28 @@ python -m src.training.train \
 8. **Write initial MongoDB document** — `experiments` collection,
    `status="running"`, before training starts. This guarantees a record exists
    even if training crashes.
-9. **Run Ultralytics training** — `YOLO(model).train(data=..., seed=42, ...)`.
-   On failure, sets `status="failed"` in MongoDB and re-raises.
-10. **Extract metrics** — reads `runs/train/{run_id}/results.csv`. Computes F1
+9. **Pre-training setup**:
+   - `mlflow.set_tracking_uri("./mlruns")` is called explicitly before
+     Ultralytics training to force a relative local path. Without this,
+     Ultralytics' built-in MLflow callback can receive a bare Windows absolute
+     path (e.g. `C:\…\runs\train`) that MLflow rejects as an invalid URI.
+   - A `SIGTERM` signal handler is installed. When SLURM's wall-clock limit
+     kills the job, the handler sets `status="interrupted"` in MongoDB before
+     the process exits, so the experiment record is never left stuck in
+     `"running"` state.
+10. **Run Ultralytics training** — `YOLO(model).train(data=..., seed=42, ...)`.
+    On failure, sets `status="failed"` in MongoDB and re-raises.
+11. **Extract metrics** — reads `runs/train/{run_id}/results.csv`. Computes F1
     from final-row precision and recall.
-11. **Export ONNX** — `YOLO(best.pt).export(format="onnx")`. Warns and
+12. **Export ONNX** — `YOLO(best.pt).export(format="onnx")`. Warns and
     continues if export fails.
-12. **Upload checkpoints** — calls `upload_checkpoint.upload_checkpoints()`.
+13. **Upload checkpoints** — calls `upload_checkpoint.upload_checkpoints()`.
     Skipped if `--skip-upload` is set.
-13. **Update MongoDB** — `status="completed"`, metrics, checkpoint URLs,
+14. **Update MongoDB** — `status="completed"`, metrics, checkpoint URLs,
     `completed_at` timestamp.
-14. **MLflow logging** — hyperparams + final metrics logged to local
+15. **MLflow logging** — hyperparams + final metrics logged to local
     `./mlruns/` (per-machine, not shared).
-15. **Promote** — calls `maybe_promote(run_id, f1)` if F1 is available.
+16. **Promote** — calls `maybe_promote(run_id, f1)` if F1 is available.
     Skipped if `--skip-promote` is set or if F1 is None (no detections on
     tiny datasets).
 
@@ -88,6 +97,8 @@ python -m src.training.train \
 - `logs/splits.json` — run `python -m src.data.split` first.
 - MongoDB `images_metadata` populated — run `python -m src.data.ingest` first.
 - `RDD_DATA_ROOT` set in `.env` pointing to the local dataset root.
+  `train()` performs a pre-flight check: if `RDD_DATA_ROOT` is absent it raises
+  `EnvironmentError` immediately, before any MongoDB writes or file I/O.
 - YOLO pretrained weights downloadable or cached (automatic on first run).
 
 ---
@@ -102,6 +113,11 @@ stored in the `experiments` MongoDB document under `checkpoints`.
 
 Raises `RuntimeError` if any file fails to upload. Missing files (e.g. `best.onnx`
 when export failed) are skipped with a warning, not an error.
+
+The boto3 client is configured with `connect_timeout=30 s` and
+`read_timeout=300 s` to tolerate slow B2 connections when uploading large
+`.pt` files from the cluster. These values are hardcoded in the private
+`_b2_client()` helper and do not need to be set in `.env`.
 
 Environment variables required:
 - `BACKBLAZE_KEY_ID`

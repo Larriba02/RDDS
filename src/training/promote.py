@@ -34,7 +34,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pymongo import WriteConcern
 
-from src.db.connection import get_db
+from src.db.connection import get_client, get_db
 
 load_dotenv()
 
@@ -169,7 +169,7 @@ def _apply_promotion(run_id: str, old_run_id: str | None, timestamp: str) -> Non
     Raises:
         RuntimeError: If the transaction fails.
     """
-    client_obj = get_db().client  # type: ignore[attr-defined]
+    client_obj = get_client()
 
     # Transactions require a replica set. Atlas free tier supports transactions.
     try:

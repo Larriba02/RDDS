@@ -145,10 +145,15 @@ def _collect_images(data_root: Path) -> dict[str, dict[str, Any]]:
             img_dir = country_dir / official_split / "images"
             if not img_dir.exists():
                 continue
+            labels_dir = country_dir / official_split / "labels"
             for img_path in sorted(img_dir.glob("*.jpg")) + sorted(img_dir.glob("*.png")):
                 rel_path = f"{country}/{official_split}/images/{img_path.name}"
                 img_id = _image_id(rel_path)
-                txt_path = img_dir / f"{img_path.stem}.txt"
+                # Labels live in labels/ (Ultralytics convention). Fall back to
+                # images/ for datasets converted before this convention was adopted.
+                txt_path = labels_dir / f"{img_path.stem}.txt"
+                if not txt_path.exists():
+                    txt_path = img_dir / f"{img_path.stem}.txt"
                 dom_cls = _dominant_class(txt_path)
                 images[img_id] = {
                     "filepath": rel_path,
@@ -225,7 +230,6 @@ def compute_splits(
                 images[img_id]["split"] = "train"
         else:
             n_sample = max(1, int(len(remaining_ids) * sample_ratio))
-            rng.seed(RANDOM_SEED)
             sampled = rng.sample(remaining_ids, n_sample)
             sampled_set = set(sampled)
             for img_id in remaining_ids:

@@ -149,9 +149,11 @@ The script will ask for four credentials that M shares separately:
 - `BACKBLAZE_APP_KEY` — Backblaze B2 application key
 - `BACKBLAZE_BUCKET` — bucket name for model checkpoints
 
-The remaining variables (`RANDOM_SEED=42`, `SAMPLE_RATIO=0.10`) are set
-automatically. `SAMPLE_RATIO` is a training parameter — it is not meant to be
-configured here.
+The remaining variables (`RANDOM_SEED=42`, `SAMPLE_RATIO=1.0`) are set
+automatically. `SAMPLE_RATIO` controls the fraction of training images included
+by `split.py` and defaults to `1.0` so the full pool is always available.
+Per-run subsampling for Phase 0 iterations is passed as `--sample-ratio` to
+`train.py` at run time — do not set this to a value less than 1.0 in `.env`.
 
 ### Why dependencies are pinned
 `requirements.txt` uses `==` for every package. This ensures that the laptop,

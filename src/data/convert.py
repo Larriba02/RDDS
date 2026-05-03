@@ -9,8 +9,11 @@ Class map (fixed — never change without updating train.py and split.py):
     D20 → 2   Alligator crack
     D40 → 3   Pothole
 
-For each image a .txt file is created in the same directory as the image,
-with the same stem.  Each line in the .txt file has the format:
+For each image a .txt file is created in a parallel ``labels/`` directory
+(e.g. ``Japan/train/labels/Japan_000001.txt`` for an image at
+``Japan/train/images/Japan_000001.jpg``).  This matches the Ultralytics
+path convention used during training.  Each line in the .txt file has the
+format:
     <class_id> <x_center_norm> <y_center_norm> <width_norm> <height_norm>
 
 Images without any valid annotation get an empty .txt file (YOLO
@@ -149,6 +152,9 @@ def convert_dataset(data_root: Path, force: bool = False) -> int:
             if not ann_dir.exists():
                 continue
 
+            labels_dir = country_dir / split / "labels"
+            labels_dir.mkdir(exist_ok=True)
+
             for xml_path in sorted(ann_dir.glob("*.xml")):
                 # Determine image path
                 img_stem = xml_path.stem
@@ -156,7 +162,7 @@ def convert_dataset(data_root: Path, force: bool = False) -> int:
                 if not img_path.exists():
                     img_path = img_dir / f"{img_stem}.png"
 
-                label_path = img_dir / f"{img_stem}.txt"
+                label_path = labels_dir / f"{img_stem}.txt"
 
                 if label_path.exists() and not force:
                     skipped += 1

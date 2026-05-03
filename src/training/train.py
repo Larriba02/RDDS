@@ -52,9 +52,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import locale
 import math
 import os
 import random
+import signal
 import shutil
 import tempfile
 from collections import defaultdict
@@ -224,7 +226,11 @@ def _write_image_list(image_ids: list[str], metadata: dict[str, dict[str, Any]],
         abs_path = _resolve_image_path(img_id, metadata)
         if abs_path is not None:
             lines.append(str(abs_path))
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Use the system preferred encoding so Ultralytics (which calls open() without
+    # an explicit encoding) can read the file correctly on both Windows (cp1252)
+    # and Linux/macOS (utf-8).
+    enc = locale.getpreferredencoding(False)
+    path.write_text("\n".join(lines) + "\n", encoding=enc)
     return len(lines)
 
 
@@ -487,6 +493,14 @@ def train(
         RuntimeError: If training or MongoDB writes fail.
     """
     # ------------------------------------------------------------------
+    # 0. Pre-flight checks
+    # ------------------------------------------------------------------
+    if not os.getenv("RDD_DATA_ROOT"):
+        raise EnvironmentError(
+            "RDD_DATA_ROOT is not set. Set it in .env or the environment."
+        )
+
+    # ------------------------------------------------------------------
     # 1. Build run_id and prepare log directory
     # ------------------------------------------------------------------
     run_id = _make_run_id(model)
@@ -537,10 +551,18 @@ def train(
     print(f"  Train list: {n_train_written} paths → {train_list}")
     print(f"  Val list:   {n_val_written} paths → {val_list}")
 
-    # Fall back to train list when val is empty (e.g. tiny smoke-test dataset).
-    effective_val_list = val_list if n_val_written > 0 else train_list
     if n_val_written == 0:
-        print("  [warn] val set is empty — using train set as val for this run (smoke test only).")
+        if n_train_written == 0:
+            raise RuntimeError(
+                "Both train and val image lists are empty. "
+                "Check that RDD_DATA_ROOT is correct and ingest.py has been run."
+            )
+        # Smoke-test fallback: tiny dataset has too few images per country to
+        # produce a val set (< 1000 per country threshold in split.py).
+        print("  [warn] val set is empty — using train set as val (smoke-test only).")
+        effective_val_list = train_list
+    else:
+        effective_val_list = val_list
     _write_data_yaml(train_list, effective_val_list, data_yaml)
 
     # ------------------------------------------------------------------
@@ -598,9 +620,19 @@ def train(
         "save": True,
     }
 
-    # Force local MLflow tracking so Ultralytics' built-in callback doesn't
-    # use runs_dir as the URI (a bare Windows path that MLflow rejects).
-    os.environ.setdefault("MLFLOW_TRACKING_URI", "./mlruns")
+    # Ultralytics' MLflow callback reads MLFLOW_TRACKING_URI from the env.
+    # If unset it defaults to trainer.save_dir.parents[1]/mlflow, a bare
+    # Windows path (scheme "C") that MLflow rejects as unsupported.
+    # Use pathlib.as_uri() to produce a proper file:/// URI that works on
+    # both Windows and Linux.
+    os.environ["MLFLOW_TRACKING_URI"] = Path("mlruns").resolve().as_uri()
+
+    # Catch SIGTERM (e.g. SLURM wall-clock kill) and write interrupted status.
+    def _sigterm_handler(signum, frame):  # noqa: ANN001
+        _update_mongo_doc(run_id, {"status": "interrupted"})
+        raise SystemExit(f"SIGTERM received — run {run_id} marked interrupted.")
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     print(f"\nStarting Ultralytics training …")
     try:

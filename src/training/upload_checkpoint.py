@@ -69,7 +69,11 @@ def _b2_client():
         endpoint_url=endpoint,
         aws_access_key_id=key_id,
         aws_secret_access_key=app_key,
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=30,
+            read_timeout=300,
+        ),
     )
 
 
