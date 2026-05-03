@@ -1,6 +1,6 @@
 # RDDS — Training Module (IN DETAIL)
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.1 — May 2026*
+*Version 1.2 — May 2026*
 
 This document describes the implementation of the Step 3 training pipeline:
 `src/training/train.py`, `src/training/upload_checkpoint.py`, and
@@ -80,12 +80,17 @@ python -m src.training.train \
     On failure, sets `status="failed"` in MongoDB and re-raises.
 11. **Extract metrics** — reads `runs/train/{run_id}/results.csv`. Computes F1
     from final-row precision and recall.
-12. **Export ONNX** — `YOLO(best.pt).export(format="onnx")`. Warns and
-    continues if export fails.
-13. **Upload checkpoints** — calls `upload_checkpoint.upload_checkpoints()`.
-    Skipped if `--skip-upload` is set.
-14. **Update MongoDB** — `status="completed"`, metrics, checkpoint URLs,
-    `completed_at` timestamp.
+12. **Update MongoDB immediately** — `status="completed"`, metrics,
+    `completed_at` timestamp. This happens *before* ONNX export and B2 upload
+    so that metrics are never lost if those steps crash.
+13. **Export ONNX** — runs `YOLO(best.pt).export(format="onnx")` in a
+    **subprocess** (crash-safe). If the subprocess exits non-zero (e.g. due to
+    an onnxslim segfault), a warning is printed and training continues without
+    a `.onnx` file. stdout is discarded; stderr is captured in binary to avoid
+    Windows cp1252 decode errors on paths with non-ASCII characters.
+14. **Upload checkpoints** — calls `upload_checkpoint.upload_checkpoints()`.
+    Skipped if `--skip-upload` is set. If B2 upload succeeds, a second
+    MongoDB update records the checkpoint URLs.
 15. **MLflow logging** — hyperparams + final metrics logged to local
     `./mlruns/` (per-machine, not shared).
 16. **Promote** — calls `maybe_promote(run_id, f1)` if F1 is available.
