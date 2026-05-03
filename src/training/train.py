@@ -17,11 +17,14 @@ Workflow
 4. Generate a temporary ``data.yaml`` pointing to those files.
 5. Write the initial MongoDB ``experiments`` document (status="running").
 6. Start Ultralytics YOLO11 training.
-7. Export ``best.pt`` → ``best.onnx``.
-8. Upload ``best.pt``, ``last.pt``, ``best.onnx`` to Backblaze B2.
-9. Update the MongoDB document with final metrics and checkpoint URLs.
-10. Log the run to MLflow.
-11. Call ``promote.maybe_promote`` to conditionally flip is_production.
+7. Extract metrics from ``results.csv``.
+8. Update MongoDB immediately (status="completed", metrics) — before any
+   export/upload so metrics are never lost if later steps crash.
+9. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
+10. Upload ``best.pt``, ``last.pt``, ``best.onnx`` to Backblaze B2.
+11. Update MongoDB with checkpoint URLs (if upload succeeded).
+12. Log the run to MLflow.
+13. Call ``promote.maybe_promote`` to conditionally flip is_production.
 
 Non-negotiable rules (CLAUDE.md §2)
 ------------------------------------
@@ -58,6 +61,8 @@ import os
 import random
 import signal
 import shutil
+import subprocess
+import sys
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -651,34 +656,8 @@ def train(
     print(f"  Metrics: {metrics}")
 
     # ------------------------------------------------------------------
-    # 9. Export best.pt → best.onnx
-    # ------------------------------------------------------------------
-    best_pt = run_dir / "weights" / "best.pt"
-    if best_pt.exists():
-        print("\nExporting best.pt → best.onnx …")
-        try:
-            exporter = YOLO(str(best_pt))
-            exporter.export(format="onnx", imgsz=imgsz, simplify=True)
-        except Exception as exc:
-            print(f"  [warn] ONNX export failed: {exc}. Continuing without best.onnx.")
-    else:
-        print(f"  [warn] {best_pt} not found — skipping export.")
-
-    # ------------------------------------------------------------------
-    # 10. Upload checkpoints to Backblaze B2
-    # ------------------------------------------------------------------
-    checkpoint_urls: dict[str, str] = {}
-    if not skip_upload:
-        print("\nUploading checkpoints to Backblaze B2 …")
-        try:
-            checkpoint_urls = upload_checkpoints(run_id=run_id, run_dir=run_dir)
-        except Exception as exc:
-            print(f"  [warn] Checkpoint upload failed: {exc}. Continuing.")
-    else:
-        print("\n  [skip] B2 upload skipped (--skip-upload).")
-
-    # ------------------------------------------------------------------
-    # 11. Update MongoDB document with final state
+    # 9. Update MongoDB with metrics immediately — before any export/upload
+    #    so the document is never left in "running" state if later steps crash.
     # ------------------------------------------------------------------
     print("\nUpdating MongoDB document with final metrics …")
     _update_mongo_doc(
@@ -686,7 +665,7 @@ def train(
         {
             "status": "completed",
             "metrics": metrics,
-            "checkpoints": checkpoint_urls,
+            "checkpoints": {},
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "dataset_countries": countries,
             "sample_ratio": sample_ratio,
@@ -703,7 +682,59 @@ def train(
     )
 
     # ------------------------------------------------------------------
-    # 12. MLflow logging
+    # 10. Export best.pt → best.onnx
+    #     Run in a subprocess so a crash (e.g. onnxslim segfault) cannot
+    #     kill the main process and lose the MongoDB update above.
+    # ------------------------------------------------------------------
+    best_pt = run_dir / "weights" / "best.pt"
+    best_onnx = run_dir / "weights" / "best.onnx"
+    if best_pt.exists():
+        print("\nExporting best.pt → best.onnx …")
+        export_cmd = (
+            f"from ultralytics import YOLO; "
+            f"YOLO(r'{best_pt}').export(format='onnx', imgsz={imgsz}, simplify=True)"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", export_cmd],
+                stdout=subprocess.DEVNULL,   # discard ANSI-heavy Ultralytics output
+                stderr=subprocess.PIPE,       # capture errors in binary to avoid cp1252 issues
+                timeout=600,
+            )
+            if result.returncode != 0:
+                err_text = result.stderr.decode("utf-8", errors="replace")[:500]
+                print(
+                    f"  [warn] ONNX export failed (exit {result.returncode}). "
+                    f"Continuing without best.onnx.\n{err_text}"
+                )
+            else:
+                print("  ONNX export complete.")
+        except subprocess.TimeoutExpired:
+            print("  [warn] ONNX export timed out after 600 s. Continuing.")
+        except Exception as exc:
+            print(f"  [warn] ONNX export error: {exc}. Continuing.")
+    else:
+        print(f"  [warn] {best_pt} not found — skipping export.")
+
+    # ------------------------------------------------------------------
+    # 11. Upload checkpoints to Backblaze B2
+    # ------------------------------------------------------------------
+    checkpoint_urls: dict[str, str] = {}
+    if not skip_upload:
+        print("\nUploading checkpoints to Backblaze B2 …")
+        try:
+            checkpoint_urls = upload_checkpoints(run_id=run_id, run_dir=run_dir)
+        except Exception as exc:
+            print(f"  [warn] Checkpoint upload failed: {exc}. Continuing.")
+    else:
+        print("\n  [skip] B2 upload skipped (--skip-upload).")
+
+    # Update checkpoint URLs in MongoDB if any were uploaded.
+    if checkpoint_urls:
+        _update_mongo_doc(run_id, {"checkpoints": checkpoint_urls})
+
+    # ------------------------------------------------------------------
+    # 12. MLflow logging  (best_pt already resolved above)
     # ------------------------------------------------------------------
     print("\nLogging to MLflow …")
     try:
