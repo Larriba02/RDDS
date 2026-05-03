@@ -1,17 +1,67 @@
 """
 RDDS — Project Setup Script
-Run once after cloning the repository.
-Sets up dependencies, environment variables, and Ultralytics configuration.
+Run once after cloning the repository (inside an activated Python 3.12 venv).
+
+    py -3.12 -m venv .venv
+    .venv\\Scripts\\activate      # Windows
+    python setup.py
 """
 
 import subprocess
 import sys
 from pathlib import Path
 
+REQUIRED_PYTHON = (3, 12)
+TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+
+
+def check_python_version():
+    major, minor = sys.version_info[:2]
+    if (major, minor) < REQUIRED_PYTHON:
+        print(
+            f"\nERROR: Python {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+ required, "
+            f"but you are running {major}.{minor}.\n"
+            f"Create the venv with: py -3.12 -m venv .venv\n"
+        )
+        sys.exit(1)
+    print(f"Python {major}.{minor}  OK")
+
+
+def _has_nvidia_gpu() -> bool:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def install_torch():
+    print("\n--- Installing PyTorch ---")
+    if _has_nvidia_gpu():
+        print(f"  NVIDIA GPU detected — installing torch+cu124")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "torch", "torchvision",
+            "--index-url", TORCH_CUDA_INDEX,
+        ])
+    else:
+        print("  No NVIDIA GPU detected — installing torch (CPU)")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "torch", "torchvision",
+        ])
+    print("PyTorch installed.")
+
 
 def install_dependencies():
     print("\n--- Installing dependencies ---")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "-r", "requirements.txt",
+    ])
     print("Dependencies installed.")
 
 
@@ -19,7 +69,6 @@ def configure_env():
     print("\n--- Environment configuration ---")
     print("Enter your credentials. Press Enter to skip optional fields.\n")
 
-    # Only ask for credentials that the user must provide
     credentials = {
         "MONGO_URI": "MongoDB Atlas connection string (shared by M)",
         "BACKBLAZE_KEY_ID": "Backblaze B2 Key ID (shared by M)",
@@ -33,7 +82,6 @@ def configure_env():
         value = input(f"  {key} [{description}]: ").strip()
         values[key] = value if value else f"<{key.lower()}>"
 
-    # Fixed values — not configurable
     values["RANDOM_SEED"] = "42"
     values["SAMPLE_RATIO"] = "0.10"
     rdd_data_root = Path(__file__).parent / "data" / "rdd2022"
@@ -46,11 +94,12 @@ def configure_env():
         if input().strip().lower() != "y":
             print("Aborted. Existing .env kept.")
             return
-    with open(env_path, "w") as f:
+
+    with open(env_path, "w", encoding="utf-8") as f:
         for key, value in values.items():
             f.write(f"{key}={value}\n")
 
-    print(f"\n.env created.")
+    print("\n.env created.")
     print("  NOTE: Set RDD_DATA_ROOT in .env manually when you download the dataset in Step 2.")
 
 
@@ -77,15 +126,21 @@ def configure_ultralytics():
 
 def verify():
     print("\n--- Verifying installation ---")
-    try:
-        import ultralytics
-        import pymongo
-        import mlflow
-        print("  ultralytics  OK")
-        print("  pymongo      OK")
-        print("  mlflow       OK")
-    except ImportError as e:
-        print(f"  ERROR: {e}")
+    errors = []
+    for module in ("torch", "ultralytics", "pymongo", "mlflow"):
+        try:
+            __import__(module)
+            print(f"  {module:<14} OK")
+        except ImportError as e:
+            print(f"  {module:<14} ERROR: {e}")
+            errors.append(module)
+
+    import torch
+    cuda_ok = torch.cuda.is_available()
+    print(f"  CUDA available  {'YES — ' + torch.version.cuda if cuda_ok else 'NO (CPU only)'}")
+
+    if errors:
+        print(f"\nSetup failed: missing modules {errors}")
         sys.exit(1)
 
 
@@ -95,6 +150,8 @@ def main():
     print("  Road Damage Detection System · Group 3 · UFV")
     print("=" * 50)
 
+    check_python_version()
+    install_torch()
     install_dependencies()
     configure_env()
     configure_ultralytics()

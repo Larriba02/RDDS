@@ -537,7 +537,11 @@ def train(
     print(f"  Train list: {n_train_written} paths → {train_list}")
     print(f"  Val list:   {n_val_written} paths → {val_list}")
 
-    _write_data_yaml(train_list, val_list, data_yaml)
+    # Fall back to train list when val is empty (e.g. tiny smoke-test dataset).
+    effective_val_list = val_list if n_val_written > 0 else train_list
+    if n_val_written == 0:
+        print("  [warn] val set is empty — using train set as val for this run (smoke test only).")
+    _write_data_yaml(train_list, effective_val_list, data_yaml)
 
     # ------------------------------------------------------------------
     # 5. Class weights
@@ -593,6 +597,10 @@ def train(
         "plots": True,
         "save": True,
     }
+
+    # Force local MLflow tracking so Ultralytics' built-in callback doesn't
+    # use runs_dir as the URI (a bare Windows path that MLflow rejects).
+    os.environ.setdefault("MLFLOW_TRACKING_URI", "./mlruns")
 
     print(f"\nStarting Ultralytics training …")
     try:

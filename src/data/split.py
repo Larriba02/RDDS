@@ -146,7 +146,7 @@ def _collect_images(data_root: Path) -> dict[str, dict[str, Any]]:
             if not img_dir.exists():
                 continue
             for img_path in sorted(img_dir.glob("*.jpg")) + sorted(img_dir.glob("*.png")):
-                rel_path = f"{country}/{official_split}/{img_path.name}"
+                rel_path = f"{country}/{official_split}/images/{img_path.name}"
                 img_id = _image_id(rel_path)
                 txt_path = img_dir / f"{img_path.stem}.txt"
                 dom_cls = _dominant_class(txt_path)

@@ -50,13 +50,12 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    ```
 
    This will:
-   - Install all dependencies
-   - Ask for your credentials and create your .env file
+   - Check you are on Python 3.12 (aborts with instructions if not)
+   - Detect your GPU and install `torch+cu124` (NVIDIA) or `torch` CPU automatically
+   - Install all remaining dependencies from `requirements.txt`
+   - Ask for your credentials and create your `.env` file (UTF-8)
    - Configure Ultralytics for the project
-   - Verify the installation
-
-   Alternative: copy `.env.example` to `.env` and fill in the values by hand,
-   then `pip install -r requirements.txt`.
+   - Verify the installation and report whether CUDA is available
 
 4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
 

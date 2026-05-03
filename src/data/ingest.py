@@ -148,7 +148,7 @@ def _build_documents(
                 continue
 
             for img_path in sorted(img_dir.glob("*.jpg")) + sorted(img_dir.glob("*.png")):
-                rel_path = f"{country}/{official_split}/{img_path.name}"
+                rel_path = f"{country}/{official_split}/images/{img_path.name}"
                 img_id = _image_id(rel_path)
 
                 assigned_split = splits.get(img_id, "excluded")
