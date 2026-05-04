@@ -470,6 +470,12 @@ def train(
     patience: int = 15,
     imgsz: int = 640,
     amp: bool = True,
+    lr0: float = 0.01,
+    lrf: float = 0.01,
+    cos_lr: bool = False,
+    optimizer: str = "auto",
+    cache: str | bool = False,
+    workers: int = 8,
     skip_upload: bool = False,
     skip_promote: bool = False,
 ) -> str:
@@ -583,6 +589,12 @@ def train(
         "seed": RANDOM_SEED,
         "patience": patience,
         "amp": amp,
+        "lr0": lr0,
+        "lrf": lrf,
+        "cos_lr": cos_lr,
+        "optimizer": optimizer,
+        "cache": str(cache),
+        "workers": workers,
         "cls_weight": cls_weights,
         "_countries": countries,  # popped inside _write_initial_mongo_doc
     }
@@ -614,6 +626,12 @@ def train(
         "imgsz": imgsz,
         "patience": patience,
         "amp": amp,
+        "lr0": lr0,
+        "lrf": lrf,
+        "cos_lr": cos_lr,
+        "optimizer": optimizer,
+        "cache": cache,
+        "workers": workers,
         "seed": RANDOM_SEED,
         "project": project_dir,
         "name": run_id,
@@ -674,6 +692,12 @@ def train(
                 "seed": RANDOM_SEED,
                 "patience": patience,
                 "amp": amp,
+                "lr0": lr0,
+                "lrf": lrf,
+                "cos_lr": cos_lr,
+                "optimizer": optimizer,
+                "cache": str(cache),
+                "workers": workers,
                 "cls_weight": cls_weights,
             },
         },
@@ -842,6 +866,45 @@ def _parse_args() -> argparse.Namespace:
         help="Disable FP16 mixed-precision training.",
     )
     parser.add_argument(
+        "--lr0",
+        type=float,
+        default=0.01,
+        help="Initial learning rate (default: 0.01).",
+    )
+    parser.add_argument(
+        "--lrf",
+        type=float,
+        default=0.01,
+        help="Final learning rate as a fraction of lr0 (default: 0.01).",
+    )
+    parser.add_argument(
+        "--cos-lr",
+        action="store_true",
+        help="Use cosine learning rate schedule instead of linear.",
+    )
+    parser.add_argument(
+        "--optimizer",
+        default="auto",
+        choices=["auto", "SGD", "Adam", "AdamW", "NAdam", "RAdam", "RMSProp"],
+        help="Optimizer (default: auto — Ultralytics selects SGD for YOLO).",
+    )
+    parser.add_argument(
+        "--cache",
+        default="False",
+        choices=["False", "ram", "disk"],
+        help=(
+            "Cache images for faster training. 'ram' keeps them in memory "
+            "(needs ~4 GB per 3000 images), 'disk' caches as .npy files. "
+            "Default: False (re-read from disk each epoch)."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of data-loading worker threads (default: 8).",
+    )
+    parser.add_argument(
         "--skip-upload",
         action="store_true",
         help="Skip Backblaze B2 upload (for local testing).",
@@ -861,6 +924,11 @@ if __name__ == "__main__":
     if sample_ratio is None:
         sample_ratio = float(os.getenv("SAMPLE_RATIO", "1.0"))
 
+    # --cache accepts "False" | "ram" | "disk" strings from argparse
+    cache_val: str | bool = args.cache
+    if cache_val == "False":
+        cache_val = False
+
     train(
         model=args.model,
         sample_ratio=sample_ratio,
@@ -869,6 +937,12 @@ if __name__ == "__main__":
         patience=args.patience,
         imgsz=args.imgsz,
         amp=not args.no_amp,
+        lr0=args.lr0,
+        lrf=args.lrf,
+        cos_lr=args.cos_lr,
+        optimizer=args.optimizer,
+        cache=cache_val,
+        workers=args.workers,
         skip_upload=args.skip_upload,
         skip_promote=args.skip_promote,
     )
