@@ -193,7 +193,8 @@ def convert_dataset(data_root: Path, force: bool = False) -> int:
                 written += 1
 
     # Write discard log so invalid bboxes are traceable.
-    log_dir = Path("logs")
+    # Anchor to repo root (two levels above src/data/) regardless of CWD.
+    log_dir = Path(__file__).parents[2] / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     discard_log = log_dir / "discarded_annotations.txt"
     with open(discard_log, "w", encoding="utf-8") as fh:
