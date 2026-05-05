@@ -272,7 +272,7 @@ def _compute_cls_weights() -> list[float] | None:
                     totals[cls_name] += count
 
     if not totals:
-        print("  [warn] class_distribution.json has unexpected structure — skipping cls_weight.")
+        print("  [warn] class_distribution.json has unexpected structure -- skipping cls_weight.")
         return None
 
     counts = [totals.get(c, 1) for c in CLASS_NAMES]
@@ -515,7 +515,7 @@ def train(
     run_id = _make_run_id(model)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     print(f"\n{'='*60}")
-    print(f"RDDS Training — run_id: {run_id}")
+    print(f"RDDS Training -- run_id: {run_id}")
     print(f"  model={model}  sample_ratio={sample_ratio}  epochs={epochs}")
     print(f"  batch={batch}  imgsz={imgsz}  amp={amp}  patience={patience}")
     print(f"{'='*60}\n")
@@ -568,7 +568,7 @@ def train(
             )
         # Smoke-test fallback: tiny dataset has too few images per country to
         # produce a val set (< 1000 per country threshold in split.py).
-        print("  [warn] val set is empty — using train set as val (smoke-test only).")
+        print("  [warn] val set is empty -- using train set as val (smoke-test only).")
         effective_val_list = train_list
     else:
         effective_val_list = val_list
@@ -736,7 +736,7 @@ def train(
         except Exception as exc:
             print(f"  [warn] ONNX export error: {exc}. Continuing.")
     else:
-        print(f"  [warn] {best_pt} not found — skipping export.")
+        print(f"  [warn] {best_pt} not found -- skipping export.")
 
     # ------------------------------------------------------------------
     # 11. Upload checkpoints to Backblaze B2
