@@ -51,7 +51,11 @@ st.set_page_config(
 
 @st.cache_data(ttl=30, show_spinner=False)
 def load_experiments() -> pd.DataFrame:
-    db = get_db()
+    try:
+        db = get_db()
+    except Exception as exc:
+        st.error(f"Cannot connect to MongoDB: {exc}\n\nCheck that MONGO_URI is set in .env.")
+        st.stop()
     docs = list(
         db["experiments"].find(
             {},
@@ -334,10 +338,10 @@ elif page == "Experiments":
         # Mark production run
         prod_ids = df_all[df_all["is_production"] == True]["run_id"].tolist()  # noqa: E712
         for run_id in prod_ids:
+            if run_id not in df_chart["run_id"].values:
+                continue
             fig.add_vline(
-                x=df_chart.loc[df_chart["run_id"] == run_id, "F1"].values[0]
-                if run_id in df_chart["run_id"].values
-                else 0,
+                x=df_chart.loc[df_chart["run_id"] == run_id, "F1"].values[0],
                 line_dash="dot",
                 line_color="gold",
                 annotation_text="production",
@@ -460,7 +464,7 @@ elif page == "Run Detail":
                 st.plotly_chart(fig2, use_container_width=True)
 
         with tab3:
-            lr_cols = [c for c in df_csv.columns if "lr" in c.lower() or "pg" in c.lower()]
+            lr_cols = [c for c in df_csv.columns if c.startswith("lr/")]
             if lr_cols and "Epoch" in df_csv.columns:
                 fig3 = go.Figure()
                 for col in lr_cols:
@@ -499,29 +503,33 @@ elif page == "MLflow":
     st.divider()
 
     # Run detail
-    if not df_mlflow.empty:
-        st.subheader("Run detail")
-        run_names = df_mlflow["run_name"].dropna().tolist()
-        selected_mlflow = st.selectbox("Select MLflow run", run_names)
-        row = df_mlflow[df_mlflow["run_name"] == selected_mlflow].iloc[0]
+    st.subheader("Run detail")
+    options = df_mlflow[df_mlflow["run_name"].notna()][["mlflow_run_id", "run_name"]].drop_duplicates("mlflow_run_id")
+    id_to_name = dict(zip(options["mlflow_run_id"], options["run_name"]))
+    selected_mlflow_id = st.selectbox(
+        "Select MLflow run",
+        options["mlflow_run_id"].tolist(),
+        format_func=lambda rid: id_to_name.get(rid, rid),
+    )
+    row = df_mlflow[df_mlflow["mlflow_run_id"] == selected_mlflow_id].iloc[0]
 
-        col_p, col_m = st.columns(2)
-        with col_p:
-            st.markdown("**Parameters**")
-            if row["params"]:
-                st.dataframe(
-                    pd.DataFrame([{"param": k, "value": v} for k, v in row["params"].items()]),
-                    hide_index=True,
-                    use_container_width=True,
-                )
-        with col_m:
-            st.markdown("**Metrics**")
-            if row["metrics"]:
-                st.dataframe(
-                    pd.DataFrame([{"metric": k, "value": v} for k, v in row["metrics"].items()]),
-                    hide_index=True,
-                    use_container_width=True,
-                )
+    col_p, col_m = st.columns(2)
+    with col_p:
+        st.markdown("**Parameters**")
+        if row["params"]:
+            st.dataframe(
+                pd.DataFrame([{"param": k, "value": v} for k, v in row["params"].items()]),
+                hide_index=True,
+                use_container_width=True,
+            )
+    with col_m:
+        st.markdown("**Metrics**")
+        if row["metrics"]:
+            st.dataframe(
+                pd.DataFrame([{"metric": k, "value": v} for k, v in row["metrics"].items()]),
+                hide_index=True,
+                use_container_width=True,
+            )
 
     st.divider()
     st.info(

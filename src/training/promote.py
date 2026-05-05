@@ -118,7 +118,7 @@ def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
                     f"F1 {f1_new:.4f} > {f1_current:.4f} + {PROMOTE_MARGIN} "
                     f"(delta={delta:+.4f}). Promoting {run_id}."
                 )
-            elif delta >= -NOISE_BAND:
+            elif delta > -NOISE_BAND:
                 outcome = "completed"
                 print(
                     f"F1 {f1_new:.4f} within noise band of {f1_current:.4f} "
@@ -127,8 +127,8 @@ def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
             else:
                 outcome = "regression"
                 print(
-                    f"F1 {f1_new:.4f} < {f1_current:.4f} − {NOISE_BAND} "
-                    f"(delta={delta:+.4f}). Regression — not promoting."
+                    f"F1 {f1_new:.4f} < {f1_current:.4f} - {NOISE_BAND} "
+                    f"(delta={delta:+.4f}). Regression -- not promoting."
                 )
 
     now = datetime.now(timezone.utc).isoformat()

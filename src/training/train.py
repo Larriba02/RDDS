@@ -568,7 +568,10 @@ def train(
             )
         # Smoke-test fallback: tiny dataset has too few images per country to
         # produce a val set (< 1000 per country threshold in split.py).
+        # Force skip_promote so a train==val run never promotes to production.
         print("  [warn] val set is empty -- using train set as val (smoke-test only).")
+        print("  [warn] Promotion disabled for this run (val metrics are unreliable).")
+        skip_promote = True
         effective_val_list = train_list
     else:
         effective_val_list = val_list
