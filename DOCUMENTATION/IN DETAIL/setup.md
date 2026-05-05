@@ -98,9 +98,14 @@ same library versions.
 
 ### Create and activate
 
+**Always create the venv with the explicit Python 3.12 interpreter.** If your
+shell's `python` points to 3.13 or 3.14, a plain `python -m venv .venv` will
+create a 3.13/3.14 venv and `pip install` will fail building Pillow and torch
+wheels. Use the versioned invocation below.
+
 **Windows**
 ```bash
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 ```
 
@@ -112,7 +117,7 @@ This allows local scripts to run without changing the global security policy.
 
 **Mac/Linux**
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -144,9 +149,11 @@ The script will ask for four credentials that M shares separately:
 - `BACKBLAZE_APP_KEY` — Backblaze B2 application key
 - `BACKBLAZE_BUCKET` — bucket name for model checkpoints
 
-The remaining variables (`RANDOM_SEED=42`, `SAMPLE_RATIO=0.10`) are set
-automatically. `SAMPLE_RATIO` is a training parameter — it is not meant to be
-configured here.
+The remaining variables (`RANDOM_SEED=42`, `SAMPLE_RATIO=1.0`) are set
+automatically. `SAMPLE_RATIO` controls the fraction of training images included
+by `split.py` and defaults to `1.0` so the full pool is always available.
+Per-run subsampling for Phase 0 iterations is passed as `--sample-ratio` to
+`train.py` at run time — do not set this to a value less than 1.0 in `.env`.
 
 ### Why dependencies are pinned
 `requirements.txt` uses `==` for every package. This ensures that the laptop,
@@ -240,10 +247,12 @@ rdds/
 │   ├── RDDS_Pipeline.md
 │   └── IN DETAIL/
 │       ├── setup.md          ← this document
-│       ├── mongodb.md
+│       ├── mongo.md
+│       ├── data.md
 │       ├── training.md
 │       ├── inference.md
-│       └── retraining.md
+│       ├── retraining.md
+│       └── ai_assistance.md
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
 ├── src/

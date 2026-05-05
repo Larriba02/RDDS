@@ -208,6 +208,7 @@ __marimo__/
 
 # Data y artefactos del modelo
 data/
+!src/data/
 checkpoints/
 runs/
 mlruns/
@@ -223,3 +224,5 @@ logs/
 # Claude Code — per-developer review marker (managed by the
 # block-push-without-review hook). Configuration in .claude/ IS committed.
 .claude/.review-marker
+# Per-developer Claude Code local settings (personal overrides, not shared)
+.claude/settings.local.json

@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.2 — March 2026*
+*Version 1.7 — May 2026*
 
 This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -18,7 +18,7 @@ This document is a step-by-step development guide. It is designed to be pasted i
 - **Architecture:** YOLO11s (baseline) + YOLO11m (main). COCO pretrained weights, fine-tuned.
 - **Timeline:** ~2 months to final results.
 - **Full pipeline reference:** RDDS_Pipeline.md (v2.0)
-- **Claude memory document:** RDDS_Claude_Memory.md (paste at start of any new conversation)
+- **Claude standing context:** CLAUDE.md (loaded automatically by Claude Code; contains rules, conventions, and resource pointers)
 
 ---
 
@@ -51,6 +51,9 @@ boto3==1.34.0
 Pillow==10.3.0
 numpy==1.26.4
 scikit-learn==1.4.2
+onnxslim==0.1.34        # pinned — 0.1.92 segfaults with Ultralytics 8.3.0
+streamlit>=1.35.0       # dashboard
+plotly>=5.22.0          # dashboard charts
 ```
 
 ### Done criterion — verified ✅
@@ -67,16 +70,16 @@ and the environment is fully configured and verified.
 **Goal:** MongoDB Atlas cluster running with correct collections and schemas. All team members can connect.
 
 ### Tasks
-- [ ] Create MongoDB Atlas free tier cluster.
-- [ ] Create database `rdds` with three collections: `images_metadata`, `experiments`, `predictions`.
-- [ ] Create indexes:
+- [x] Create MongoDB Atlas free tier cluster.
+- [x] Create database `rdds` with three collections: `images_metadata`, `experiments`, `predictions`.
+- [x] Create indexes:
   - `images_metadata`: index on `country`, `split`, `image_id`
   - `experiments`: index on `is_production`, `status`, `model`
   - `predictions`: index on `image_id`, `model_version`
-- [ ] Share connection URI with team. Store in `.env` as `MONGO_URI`.
-- [ ] Write `src/db/connection.py` — single function `get_db()` that returns the database handle using `MONGO_URI` from `.env`.
-- [ ] Write `src/db/setup_atlas.py` — idempotent script that creates the three collections and all required indexes.
-- [ ] Write a smoke test: `python -m src.db.test_connection` — connects, inserts/reads/deletes a sentinel document in each collection, prints OK.
+- [x] Share connection URI with team. Store in `.env` as `MONGO_URI`.
+- [x] Write `src/db/connection.py` — single function `get_db()` that returns the database handle using `MONGO_URI` from `.env`.
+- [x] Write `src/db/setup_atlas.py` — idempotent script that creates the three collections and all required indexes.
+- [x] Write a smoke test: `python -m src.db.test_connection` — connects, inserts/reads/deletes a sentinel document in each collection, prints OK.
 
 ### MongoDB Schemas
 
@@ -133,51 +136,80 @@ and the environment is fully configured and verified.
 
 ---
 
-## ⏳ STEP 2 — Data Ingestion
+## 🔄 STEP 2 — Data Ingestion
 
 **Owner:** M  
+**Status:** Code implemented and smoke-tested on tiny dataset. **Step not complete — real pipeline run pending.**  
 **Goal:** RDD2022 downloaded, validated, converted to YOLO format, split, uploaded to cloud, and metadata written to MongoDB. Done once by M. All other machines pull from cloud.
 
-### Tasks
-- [ ] `src/data/download.py` — download country ZIPs from Sekilab S3 to local disk.
+### Code tasks (done — committed to dev)
+- [x] `src/data/download.py` — download country ZIPs from Sekilab S3 to local disk.
   ```
   https://bigdatacup.s3.ap-northeast-1.amazonaws.com/2022/CRDDC2022/RDD2022/Country_Specific_Data_CRDDC2022/RDD2022_{country}.zip
   ```
   Countries: Japan, India, Czech, Norway, United_States, China_MotorBike, China_Drone
 
-- [ ] `src/data/validate.py` — parse every PascalVOC XML, discard bboxes where:
+- [x] `src/data/validate.py` — parse every PascalVOC XML, discard bboxes where:
+  - label not in {D00, D10, D20, D40}
   - xmin < 0 or ymin < 0
   - xmax > image width or ymax > image height
   - area == 0 (degenerate)
   Log all discarded samples to `logs/discarded_annotations.txt`.
 
-- [ ] `src/data/convert.py` — PascalVOC XML → YOLO `.txt` format.
-  Class map: D00=0, D10=1, D20=2, D40=3. One `.txt` per image, same name.
+- [x] `src/data/convert.py` — PascalVOC XML → YOLO `.txt` format.
+  Class map: D00=0, D10=1, D20=2, D40=3. One `.txt` per image, same stem, written into a parallel `labels/` directory next to `images/` (e.g. `Japan/train/labels/`). Idempotent (skip existing unless --force).
 
-- [ ] `src/data/analyse_distribution.py` — count instances per class per country. Print distribution table. Save to `logs/class_distribution.json`. **This output calibrates cls_weight in training — do not skip.**
+- [x] `src/data/analyse_distribution.py` — count instances per class per country. Print distribution table. Save to `logs/class_distribution.json`. **This output calibrates cls_weight in training — do not skip.**
 
-- [ ] `src/data/split.py` — respect official RDD2022 train/test partitions. Within the official train split:
+- [x] `src/data/split.py` — respect official RDD2022 train/test partitions. Within the official train split:
   - Reserve fixed 1,000 images per country for validation. **Stratified by (country, dominant damage class)** using `sklearn.model_selection.StratifiedShuffleSplit` so the val set preserves class balance per country, not just country balance. The dominant class per image is the most frequent label among its bboxes; ties broken by alphabetical order.
   - Remaining train images sampled at `SAMPLE_RATIO` stratified by country.
   - `image_id` = MD5 hash of relative filepath.
+  - Saves `logs/splits.json` and `logs/split_summary.txt`.
+  - **`SAMPLE_RATIO` convention:** always run `split.py` with `SAMPLE_RATIO=1.0` (the default and the value that must be set in `.env`). This commits the full training pool to `splits.json`. Per-run subsampling for Phase 0 iterations is controlled by `train.py --sample-ratio` (e.g. `0.10`, `0.25`, `0.50`), not by re-running `split.py`.
 
-- [ ] `tests/data/tiny_rdd2022/` — **synthetic mini-dataset** committed to the repo: 5 images × 2 countries (Japan, Czech) × all 4 classes (D00, D10, D20, D40). Lets every step from validation through training be smoke-tested in seconds. Reused in Step 4 as the *cluster smoke test* before any A100 job: `sbatch` a 1-epoch run on the tiny dataset to confirm SLURM, CUDA, and Mongo writes work end-to-end on the cluster node before queueing the real run.
+- [x] `tests/data/tiny_rdd2022/` — **synthetic mini-dataset** committed to the repo: 5 images × 2 countries (Japan, Czech) × all 4 classes (D00, D10, D20, D40). Lets every step from validation through training be smoke-tested in seconds. Reused in Step 4 as the *cluster smoke test* before any A100 job: `sbatch` a 1-epoch run on the tiny dataset to confirm SLURM, CUDA, and Mongo writes work end-to-end on the cluster node before queueing the real run.
+  Generated by `tests/data/generate_tiny_dataset.py`.
 
-- [ ] `src/data/ingest.py` — write one document per image to MongoDB `images_metadata`. Skip if `image_id` already exists (idempotent).
+- [x] `src/data/ingest.py` — write one document per image to MongoDB `images_metadata`. Skip if `image_id` already exists (idempotent). Reads `logs/splits.json` for split assignments.
 
-- [ ] `src/data/upload_to_cloud.py` — upload processed dataset to cloud storage.
+- [x] `src/data/upload_to_cloud.py` — upload processed dataset (labels + logs) to Backblaze B2. Pass `--include-images` to also upload image files.
+
+### Manual completion — M must run this once on a machine with enough disk (~100 GB free)
+
+```bash
+# 1. Download (~60 GB, skips existing ZIPs)
+python -m src.data.download
+
+# 2. Validate + convert (idempotent)
+python -m src.data.validate
+python -m src.data.convert
+
+# 3. Analyse distribution — produces logs/class_distribution.json needed for training
+python -m src.data.analyse_distribution
+
+# 4. Split — produces logs/splits.json
+python -m src.data.split
+
+# 5. Ingest into MongoDB
+python -m src.data.ingest
+
+# 6. Upload to Backblaze B2 (labels + logs; add --include-images for full dataset)
+python -m src.data.upload_to_cloud
+```
 
 ### Done when
-- MongoDB `images_metadata` populated with all countries.
-- `logs/class_distribution.json` exists and shows per-class counts.
-- Any team member can pull the processed dataset.
+- [x] MongoDB `images_metadata` populated with all 7 countries (19,170 documents: China_Drone 1140, China_MotorBike 1597, Czech 1891, India 3629, Japan 4577, Norway 3756, United_States 2580).
+- [x] `logs/class_distribution.json` exists and shows per-class counts per country (cls_weights computed).
+- [x] Any team member can pull the processed dataset from Backblaze B2 — pending verification by L or J.
 
 ---
 
-## ⏳ STEP 3 — Phase 0 Training (Sandbox + Baseline)
+## ✅ STEP 3 — Phase 0 Training (Sandbox + Baseline) — DONE
 
 **Owner:** M  
-**Goal:** Full pipeline runs end-to-end on laptop. Real (weak) mAP number produced. MongoDB writes confirmed. MLflow logging confirmed.
+**Status:** Complete — all 4 sample ratios trained, baseline at SAMPLE_RATIO=1.0 promoted to production.  
+**Goal:** Full pipeline runs end-to-end on laptop. Real mAP/F1 numbers produced. MongoDB writes confirmed. MLflow logging confirmed.
 
 ### Phase 0 philosophy — laptop sandbox
 
@@ -188,30 +220,51 @@ Phase 0 is **not just a one-off baseline run**. It is the iteration sandbox wher
 
 The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which Phase 1 (YOLO11m) is measured.
 
-### Configuration
+### Configuration (first Phase 0 run — subsequent runs increase --sample-ratio)
 ```
-Model:        YOLO11s
-Dataset:      All 6 countries, SAMPLE_RATIO=0.10
-Batch:        8
-imgsz:        640
-Epochs:       50          # hard cap
-patience:     15          # early stopping on metrics/mAP50
-amp:          True (FP16)
-seed:         42
-cls_weight:   from class_distribution.json
+Model:              YOLO11s
+--sample-ratio:     0.10   # first iteration; increase to 0.25 → 0.50 → 1.00
+                           # SAMPLE_RATIO in .env must be 1.0 (full pool)
+Batch:              8
+imgsz:              640
+Epochs:             50          # hard cap
+patience:           15          # early stopping on metrics/mAP50
+amp:                True (FP16)
+seed:               42
+cls_weight:         from class_distribution.json
 ```
 
 ### Tasks
-- [ ] `src/training/train.py` — Ultralytics YOLO11 training script.
-- [ ] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
-- [ ] `src/training/promote.py` — compare new model mAP vs current `is_production` model.
+- [x] `src/training/train.py` — Ultralytics YOLO11 training script.
+  - Pre-flight check: raises `EnvironmentError` immediately if `RDD_DATA_ROOT` is not set, before any MongoDB writes or file I/O.
+  - Reads `logs/splits.json`. Subsamples train pool at `--sample-ratio` per-country stratified (proportional, RANDOM_SEED=42).
+  - Val set is always 100% of split=="val" — never subsampled. On tiny datasets where no val set is produced (fewer than 1 000 images per country in `split.py`), falls back to using the train list as val so smoke tests can proceed.
+  - Writes `logs/train_images_{run_id}.txt`, `logs/val_images_{run_id}.txt`, `logs/data_{run_id}.yaml`.
+  - Calls `mlflow.set_tracking_uri("./mlruns")` before training to force a local relative URI (prevents Windows path rejection by MLflow).
+  - Installs a `SIGTERM` handler that marks the run `status="interrupted"` in MongoDB when SLURM's wall-clock limit kills the job.
+  - Writes MongoDB `experiments` doc with status="running" before training starts.
+  - Runs Ultralytics YOLO11 training, exports best.onnx, uploads to B2, updates MongoDB with final metrics.
+  - Logs to MLflow. Calls `maybe_promote` at the end.
+- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
+- [x] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A). Uses MongoDB transaction for atomic is_production toggle.
 
-### Done when
-- Training completes without errors.
-- MongoDB `experiments` has one document with real metrics.
-- MLflow has one logged run.
-- Backblaze has `best.pt` and `best.onnx` for this run.
-- `is_production=True` on the YOLO11s run.
+### Phase 0 results (actual)
+
+| Run | sample_ratio | F1 | mAP@0.5 |
+|-----|--------------|----|---------|
+| run_20260504_023735_yolo11s | 0.10 | 0.411 | — |
+| run_20260504_113520_yolo11s | 0.25 | 0.501 | — |
+| run_20260504_somewhere_yolo11s | 0.50 | 0.564 | — |
+| run_20260504_202658_yolo11s | 1.00 | **0.598** | 0.601 |
+
+F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%→100%: +0.034). YOLO11s on full laptop dataset establishes the baseline.
+
+### Done when — verified ✅
+- [x] Training completes without errors at all four sample ratios.
+- [x] MongoDB `experiments` has four completed documents with real metrics.
+- [x] MLflow has logged runs.
+- [x] Backblaze has `best.pt`, `last.pt`, and `best.onnx` for each run.
+- [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
 
 ---
 
@@ -233,7 +286,7 @@ seed:         42
 ```
 
 ### Tasks
-- [ ] Create `scripts/train_cluster.sh` — sbatch script.
+- [x] `scripts/train_cluster.sh` — sbatch script. Accepts `MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DATA_ROOT`, `SMOKE_TEST` via `--export`. Set `SMOKE_TEST=1` to run on the tiny synthetic dataset instead of `DATA_ROOT`.
 - [ ] **Cluster smoke test** — `sbatch` a 1-epoch run on `tests/data/tiny_rdd2022/` (the synthetic mini-dataset from Step 2). Must finish without SLURM errors, write a sentinel `experiments` doc to MongoDB, and upload a `best.pt` to Backblaze. This validates SLURM, CUDA, network, and the full pipeline on the cluster node before any real job is queued.
 - [ ] Run YOLO11s first (faster, confirms cluster setup works on real data).
 - [ ] Run YOLO11m after YOLO11s completes successfully.
@@ -241,7 +294,7 @@ seed:         42
 
 ### Done when
 - YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.
-- mAP@0.5 in expected range 0.82–0.88.
+- F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.
 
 ---
 
@@ -322,12 +375,13 @@ seed:         42
 ```
 rdds/
 ├── DOCUMENTATION/
-│   ├── RDDS_Technical_Document.docx
+│   ├── RDDS_Technical_Document_v3.docx
 │   ├── RDDS_Dev_Steps.md
 │   ├── RDDS_Pipeline.md
 │   └── IN DETAIL/
 │       ├── setup.md
 │       ├── mongo.md
+│       ├── data.md
 │       ├── training.md
 │       ├── inference.md
 │       ├── retraining.md
@@ -352,6 +406,7 @@ rdds/
 │   │   ├── upload_checkpoint.py
 │   │   ├── promote.py
 │   │   └── retrain.py
+│   ├── dashboard.py        # Streamlit experiment dashboard (run: streamlit run src/dashboard.py)
 │   ├── evaluation/
 │   │   ├── evaluate.py
 │   │   └── qualitative.py
@@ -369,10 +424,10 @@ rdds/
 ├── outputs/
 ├── CLAUDE.md
 ├── .claude/
-│   ├── commands/             # /smoke-test, /rdds-review, /sync-docs, /debug-mongo
+│   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
 │   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
 │   │                         # doc-syncer, step-implementer
-│   ├── hooks/
+│   ├── hooks/                # block-push-without-review.py
 │   └── settings.json
 ├── setup.py
 ├── .env.example

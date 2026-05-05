@@ -50,13 +50,12 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    ```
 
    This will:
-   - Install all dependencies
-   - Ask for your credentials and create your .env file
+   - Check you are on Python 3.12 (aborts with instructions if not)
+   - Detect your GPU and install `torch+cu124` (NVIDIA) or `torch` CPU automatically
+   - Install all remaining dependencies from `requirements.txt`
+   - Ask for your credentials and create your `.env` file (UTF-8)
    - Configure Ultralytics for the project
-   - Verify the installation
-
-   Alternative: copy `.env.example` to `.env` and fill in the values by hand,
-   then `pip install -r requirements.txt`.
+   - Verify the installation and report whether CUDA is available
 
 4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
 
@@ -72,6 +71,47 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    Note: from step 3 onwards the venv is active, so plain `python` already
    points to the 3.12 interpreter inside `.venv`. You do **not** need to use
    `py -3.12` for these commands — only at venv creation time.
+
+6. Data ingestion (Step 2 — run once by M, teammates pull from cloud)
+   ```
+   python -m src.data.download            # download RDD2022 ZIPs
+   python -m src.data.validate            # validate annotations, log discards
+   python -m src.data.convert             # PascalVOC XML → YOLO .txt
+   python -m src.data.analyse_distribution  # class distribution → logs/
+   python -m src.data.split               # assign train/val/test splits
+   python -m src.data.ingest              # write metadata to MongoDB
+   python -m src.data.upload_to_cloud     # upload labels + logs to B2
+   ```
+
+   To smoke-test the pipeline in seconds (no real dataset needed):
+   ```
+   python -m src.data.validate   --data-root tests/data/tiny_rdd2022
+   python -m src.data.convert    --data-root tests/data/tiny_rdd2022
+   python -m src.data.analyse_distribution --data-root tests/data/tiny_rdd2022
+   python -m src.data.split      --data-root tests/data/tiny_rdd2022
+   ```
+
+7. Training (Step 3 — Phase 0 laptop baseline)
+   ```
+   # Phase 0: grow from 10% to 100% to map F1-vs-data curve
+   python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 0.25 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 0.50 --epochs 50 --batch 8 --patience 15
+   python -m src.training.train --model yolo11s --sample-ratio 1.00 --epochs 50 --batch 8 --patience 15
+   ```
+
+   Prerequisites: Step 2 must be complete (splits.json and MongoDB images_metadata populated).
+   Each run writes to MongoDB, uploads checkpoints to B2, logs to MLflow, and conditionally promotes.
+
+   To smoke-test training without real data or B2 credentials:
+   ```
+   # Ingest tiny dataset into MongoDB first (requires MONGO_URI in .env)
+   python -m src.data.split     --data-root tests/data/tiny_rdd2022
+   python -m src.data.ingest    --data-root tests/data/tiny_rdd2022
+
+   # 1-epoch run, no B2 upload, no promotion
+   python -m src.training.train --model yolo11s --sample-ratio 1.0 --epochs 1 --batch 2 --skip-upload --skip-promote
+   ```
 
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.

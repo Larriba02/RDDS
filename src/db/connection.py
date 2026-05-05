@@ -37,6 +37,11 @@ def _get_client() -> MongoClient:
     return MongoClient(uri, serverSelectionTimeoutMS=5000)
 
 
+def get_client() -> MongoClient:
+    """Return the cached MongoClient (use get_db() for normal operations)."""
+    return _get_client()
+
+
 def get_db() -> Database:
     """Return the 'rdds' database handle."""
     return _get_client()[DB_NAME]

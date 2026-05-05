@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Skill(sync-docs)",
+      "Bash(.venv/Scripts/python.exe -c \"import src.training.upload_checkpoint; print\\('upload_checkpoint OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/training/train.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/training/upload_checkpoint.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/training/promote.py)",
+      "Bash(python3 *)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import torch; print\\(torch.__version__\\)\")",
+      "Bash(nvidia-smi)",
+      "Bash(.venv/Scripts/pip show *)",
+      "Bash(.venv/Scripts/python -m src.data.ingest --data-root tests/data/tiny_rdd2022)",
+      "Bash(.venv/Scripts/python -m src.training.train --model yolo11s --sample-ratio 1.0 --epochs 1 --batch 2 --skip-upload --skip-promote)",
+      "Bash(.venv/Scripts/python -m src.data.split --data-root tests/data/tiny_rdd2022)",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venv/Scripts/python -c \"import onnx; import onnxruntime; print\\('onnx', onnx.__version__\\); print\\('onnxruntime', onnxruntime.__version__\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('logs/splits.json'\\)\\); from collections import Counter; c=Counter\\(d.values\\(\\)\\); print\\('Split counts:', dict\\(c\\)\\); print\\('Total:', len\\(d\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('logs/class_distribution.json'\\)\\); print\\(json.dumps\\(d, indent=2\\)\\)\")",
+      "Bash(.venv/Scripts/python -m src.data.split)",
+      "Bash(.venv/Scripts/python -m src.training.train --help)",
+      "Bash(.venv/Scripts/python -m src.data.ingest)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\")",
+      "PowerShell(Get-Process -Id 52896 -ErrorAction SilentlyContinue | Select-Object Id, @{Name='CPU\\(s\\)';Expression={[math]::Round\\($_.CPU,1\\)}}, @{Name='WorkingSet\\(MB\\)';Expression={[math]::Round\\($_.WorkingSet/1MB,1\\)}})",
+      "Bash(.venv/Scripts/python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15)",
+      "Bash(python -c \"from pathlib import Path; p = Path\\(r'C:\\\\Users\\\\<user>\\\\OneDrive\\\\ESTUDIOS\\\\3\\\\xbaCAR\\\\xc2\\\\xb3RA\\\\VS\\\\2do CUATRI\\\\INTEGRATING PROJECT\\\\RDDS\\\\data\\\\rdd2022\\\\China_Drone\\\\train\\\\labels\\\\China_Drone_000571.txt'\\); print\\(p.exists\\(\\)\\)\")",
+      "Bash(.venv/Scripts/python -c \"import locale, sys; print\\('preferred:', locale.getpreferredencoding\\(False\\)\\); print\\('default:', sys.getdefaultencoding\\(\\)\\); print\\('fs:', sys.getfilesystemencoding\\(\\)\\)\")",
+      "Bash(.venv/Scripts/python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 1 --batch 8 --patience 1 --skip-upload --skip-promote)",
+      "Bash(.venv/Scripts/python -c \"import onnxslim; print\\(onnxslim.__version__\\)\")"
+    ]
+  }
+}
