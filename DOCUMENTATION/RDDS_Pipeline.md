@@ -1,6 +1,6 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.1 — April 2026*
+*Version 2.2 — May 2026*
 
 ---
 
@@ -202,6 +202,33 @@ full_path = os.path.join(os.getenv("RDD_DATA_ROOT"), image["filepath"])
 
 ---
 
+## Experiment Dashboard
+
+`src/dashboard.py` is a Streamlit application that provides a live view of all experiments. It reads from three sources:
+
+| Source | What it provides |
+|--------|-----------------|
+| MongoDB `experiments` | Canonical run results, hyperparameters, production status |
+| `runs/train/{run_id}/results.csv` | Per-epoch training curves (loss, mAP, precision, recall) |
+| `mlruns/` (MLflow) | Logged parameters and final metrics per run |
+
+**Pages:**
+
+- **Overview** — Production model card with F1/mAP/precision/recall metrics; F1-vs-data-fraction curve showing Phase 0 diminishing-returns progression.
+- **Experiments** — Filterable table of all runs ranked by F1; comparison bar chart; mAP@0.5 vs F1 scatter.
+- **Run Detail** — Select any run and see per-epoch training curves (metrics, losses, learning rate) pulled from `results.csv`, plus hyperparameters and Backblaze B2 checkpoint URLs.
+- **MLflow** — Tabular view of all MLflow-logged runs with params and metrics. Link to native `mlflow ui` for full per-epoch curves logged by Ultralytics' built-in callback.
+
+**Run:**
+```bash
+streamlit run src/dashboard.py
+# Opens http://localhost:8501
+```
+
+The dashboard is read-only and does not modify any state. The "Refresh" button in the sidebar clears the 30-second cache and re-queries MongoDB.
+
+---
+
 ## Stage 3 — Training
 
 ### Architecture: YOLO11
@@ -252,10 +279,10 @@ Mitigation:
 │  Dataset:   All 6 countries, full train split (SAMPLE_RATIO=1.0) │
 │  Models:    YOLO11s (confirmed baseline) + YOLO11m (main)        │
 │  Config:    batch=32, imgsz=640, epochs=100, amp=True (FP16)     │
-│             patience=20 (early stopping on val/map50)           │
+│             patience=20 (early stopping on val/map50)            │
 │  Goal:      Full-performance training. Final evaluation on       │
 │             Norway held-out test set.                            │
-│  Expected:  mAP@0.5 ~0.82–0.88 (YOLO11m)                       │
+│  Expected:  mAP@0.5 ~0.82–0.88 (YOLO11m)                         │
 └──────────────────────────────────────────────────────────────────┘
 ```
 

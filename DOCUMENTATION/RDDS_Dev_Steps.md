@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.6 — May 2026*
+*Version 1.7 — May 2026*
 
 This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -51,6 +51,9 @@ boto3==1.34.0
 Pillow==10.3.0
 numpy==1.26.4
 scikit-learn==1.4.2
+onnxslim==0.1.34        # pinned — 0.1.92 segfaults with Ultralytics 8.3.0
+streamlit>=1.35.0       # dashboard
+plotly>=5.22.0          # dashboard charts
 ```
 
 ### Done criterion — verified ✅
@@ -202,11 +205,11 @@ python -m src.data.upload_to_cloud
 
 ---
 
-## 🔄 STEP 3 — Phase 0 Training (Sandbox + Baseline)
+## ✅ STEP 3 — Phase 0 Training (Sandbox + Baseline) — DONE
 
 **Owner:** M  
-**Status:** Code implemented. Real training run on full dataset pending.  
-**Goal:** Full pipeline runs end-to-end on laptop. Real (weak) mAP number produced. MongoDB writes confirmed. MLflow logging confirmed.
+**Status:** Complete — all 4 sample ratios trained, baseline at SAMPLE_RATIO=1.0 promoted to production.  
+**Goal:** Full pipeline runs end-to-end on laptop. Real mAP/F1 numbers produced. MongoDB writes confirmed. MLflow logging confirmed.
 
 ### Phase 0 philosophy — laptop sandbox
 
@@ -245,12 +248,23 @@ cls_weight:         from class_distribution.json
 - [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
 - [x] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A). Uses MongoDB transaction for atomic is_production toggle.
 
-### Done when
-- Training completes without errors.
-- MongoDB `experiments` has one document with real metrics.
-- MLflow has one logged run.
-- Backblaze has `best.pt` and `best.onnx` for this run.
-- `is_production=True` on the YOLO11s run.
+### Phase 0 results (actual)
+
+| Run | sample_ratio | F1 | mAP@0.5 |
+|-----|--------------|----|---------|
+| run_20260504_023735_yolo11s | 0.10 | 0.411 | — |
+| run_20260504_113520_yolo11s | 0.25 | 0.501 | — |
+| run_20260504_somewhere_yolo11s | 0.50 | 0.564 | — |
+| run_20260504_202658_yolo11s | 1.00 | **0.598** | 0.601 |
+
+F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%→100%: +0.034). YOLO11s on full laptop dataset establishes the baseline.
+
+### Done when — verified ✅
+- [x] Training completes without errors at all four sample ratios.
+- [x] MongoDB `experiments` has four completed documents with real metrics.
+- [x] MLflow has logged runs.
+- [x] Backblaze has `best.pt`, `last.pt`, and `best.onnx` for each run.
+- [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
 
 ---
 
@@ -392,6 +406,7 @@ rdds/
 │   │   ├── upload_checkpoint.py
 │   │   ├── promote.py
 │   │   └── retrain.py
+│   ├── dashboard.py        # Streamlit experiment dashboard (run: streamlit run src/dashboard.py)
 │   ├── evaluation/
 │   │   ├── evaluate.py
 │   │   └── qualitative.py
