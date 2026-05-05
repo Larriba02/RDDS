@@ -149,7 +149,7 @@ def upload_checkpoints(
             continue
 
         b2_key = f"checkpoints/{run_id}/{filename}"
-        print(f"  Uploading {filename} → {b2_key} …")
+        print(f"  Uploading {filename} -> {b2_key} ...")
         try:
             client.upload_file(
                 str(local_path),

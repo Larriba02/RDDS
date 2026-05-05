@@ -7,8 +7,8 @@ Workflow
 --------
 1. Read ``logs/splits.json`` (written by split.py).
 2. Build the training image list:
-   - All images where split == "val"  → fixed val set (never subsampled).
-   - All images where split == "train" → candidate pool.
+   - All images where split == "val"  ->fixed val set (never subsampled).
+   - All images where split == "train" ->candidate pool.
    - Subsample the candidate pool at ``--sample-ratio`` stratified by
      country using per-country proportional sampling with RANDOM_SEED=42.
 3. Write per-run image list files:
@@ -20,7 +20,7 @@ Workflow
 7. Extract metrics from ``results.csv``.
 8. Update MongoDB immediately (status="completed", metrics) — before any
    export/upload so metrics are never lost if later steps crash.
-9. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
+9. Export ``best.pt`` ->``best.onnx`` in a subprocess (crash-safe).
 10. Upload ``best.pt``, ``last.pt``, ``best.onnx`` to Backblaze B2.
 11. Update MongoDB with checkpoint URLs (if upload succeeded).
 12. Log the run to MLflow.
@@ -98,7 +98,7 @@ RUNS_DIR = Path("runs") / "train"
 
 
 def _load_splits() -> dict[str, str]:
-    """Load image_id → split mapping from logs/splits.json.
+    """Load image_id ->split mapping from logs/splits.json.
 
     Returns:
         Dict mapping image_id to split string.
@@ -118,7 +118,7 @@ def _load_image_metadata() -> dict[str, dict[str, Any]]:
     """Pull image filepath + country from MongoDB images_metadata.
 
     Returns:
-        Dict mapping image_id → {"filepath": str, "country": str}.
+        Dict mapping image_id ->{"filepath": str, "country": str}.
 
     Raises:
         RuntimeError: If the collection is empty (ingest not run yet).
@@ -153,7 +153,7 @@ def _subsample_train_ids(
 
     Args:
         train_ids: Full candidate pool (split == "train").
-        metadata: image_id → {filepath, country} from MongoDB.
+        metadata: image_id ->{filepath, country} from MongoDB.
         sample_ratio: Fraction of each country's images to include (0, 1].
 
     Returns:
@@ -184,7 +184,7 @@ def _subsample_train_ids(
         rng.shuffle(ids)
         n = max(1, math.ceil(len(ids) * sample_ratio))
         sampled.extend(ids[:n])
-        print(f"  Country {country}: {len(ids)} → {n} images sampled.")
+        print(f"  Country {country}: {len(ids)} ->{n} images sampled.")
 
     return sorted(sampled)
 
@@ -196,7 +196,7 @@ def _resolve_image_path(img_id: str, metadata: dict[str, dict[str, Any]]) -> Pat
 
     Args:
         img_id: image_id to resolve.
-        metadata: image_id → {filepath, country} dict.
+        metadata: image_id ->{filepath, country} dict.
 
     Returns:
         Absolute Path or None if the metadata or env var is missing.
@@ -217,7 +217,7 @@ def _write_image_list(image_ids: list[str], metadata: dict[str, dict[str, Any]],
 
     Args:
         image_ids: Ordered list of image_ids to write.
-        metadata: image_id → {filepath, country} dict.
+        metadata: image_id ->{filepath, country} dict.
         path: Output .txt file path.
 
     Returns:
@@ -523,10 +523,10 @@ def train(
     # ------------------------------------------------------------------
     # 2. Load splits and metadata
     # ------------------------------------------------------------------
-    print("Loading splits …")
+    print("Loading splits ...")
     splits = _load_splits()
 
-    print("Loading image metadata from MongoDB …")
+    print("Loading image metadata from MongoDB ...")
     metadata = _load_image_metadata()
 
     # Separate train/val pools.
@@ -539,7 +539,7 @@ def train(
     # ------------------------------------------------------------------
     # 3. Subsample training set at sample_ratio
     # ------------------------------------------------------------------
-    print(f"\nSubsampling training set at ratio={sample_ratio} …")
+    print(f"\nSubsampling training set at ratio={sample_ratio} ...")
     selected_train_ids = _subsample_train_ids(all_train_ids, metadata, sample_ratio)
     print(f"  Selected for training: {len(selected_train_ids)} images")
 
@@ -557,8 +557,8 @@ def train(
 
     n_train_written = _write_image_list(selected_train_ids, metadata, train_list)
     n_val_written = _write_image_list(all_val_ids, metadata, val_list)
-    print(f"  Train list: {n_train_written} paths → {train_list}")
-    print(f"  Val list:   {n_val_written} paths → {val_list}")
+    print(f"  Train list: {n_train_written} paths ->{train_list}")
+    print(f"  Val list:   {n_val_written} paths ->{val_list}")
 
     if n_val_written == 0:
         if n_train_written == 0:
@@ -598,7 +598,7 @@ def train(
         "cls_weight": cls_weights,
         "_countries": countries,  # popped inside _write_initial_mongo_doc
     }
-    print("\nWriting initial MongoDB document …")
+    print("\nWriting initial MongoDB document ...")
     _write_initial_mongo_doc(
         run_id=run_id,
         model=model,
@@ -655,7 +655,7 @@ def train(
 
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
-    print(f"\nStarting Ultralytics training …")
+    print(f"\nStarting Ultralytics training ...")
     try:
         results = yolo.train(**train_kwargs)
     except Exception as exc:
@@ -667,7 +667,7 @@ def train(
     # ------------------------------------------------------------------
     # 8. Extract metrics from results.csv
     # ------------------------------------------------------------------
-    print("\nExtracting metrics …")
+    print("\nExtracting metrics ...")
     metrics = _extract_metrics(run_dir)
     print(f"  Metrics: {metrics}")
 
@@ -675,7 +675,7 @@ def train(
     # 9. Update MongoDB with metrics immediately — before any export/upload
     #    so the document is never left in "running" state if later steps crash.
     # ------------------------------------------------------------------
-    print("\nUpdating MongoDB document with final metrics …")
+    print("\nUpdating MongoDB document with final metrics ...")
     _update_mongo_doc(
         run_id,
         {
@@ -704,14 +704,14 @@ def train(
     )
 
     # ------------------------------------------------------------------
-    # 10. Export best.pt → best.onnx
+    # 10. Export best.pt ->best.onnx
     #     Run in a subprocess so a crash (e.g. onnxslim segfault) cannot
     #     kill the main process and lose the MongoDB update above.
     # ------------------------------------------------------------------
     best_pt = run_dir / "weights" / "best.pt"
     best_onnx = run_dir / "weights" / "best.onnx"
     if best_pt.exists():
-        print("\nExporting best.pt → best.onnx …")
+        print("\nExporting best.pt ->best.onnx ...")
         export_cmd = (
             f"from ultralytics import YOLO; "
             f"YOLO(r'{best_pt}').export(format='onnx', imgsz={imgsz}, simplify=True)"
@@ -743,7 +743,7 @@ def train(
     # ------------------------------------------------------------------
     checkpoint_urls: dict[str, str] = {}
     if not skip_upload:
-        print("\nUploading checkpoints to Backblaze B2 …")
+        print("\nUploading checkpoints to Backblaze B2 ...")
         try:
             checkpoint_urls = upload_checkpoints(run_id=run_id, run_dir=run_dir)
         except Exception as exc:
@@ -758,7 +758,7 @@ def train(
     # ------------------------------------------------------------------
     # 12. MLflow logging  (best_pt already resolved above)
     # ------------------------------------------------------------------
-    print("\nLogging to MLflow …")
+    print("\nLogging to MLflow ...")
     try:
         mlflow.set_experiment("rdds_training")
         with mlflow.start_run(run_name=run_id):
@@ -797,7 +797,7 @@ def train(
     if not skip_promote:
         f1 = metrics.get("F1")
         if f1 is not None:
-            print(f"\nRunning promotion check (training-time F1={f1:.4f}) …")
+            print(f"\nRunning promotion check (training-time F1={f1:.4f}) ...")
             print(
                 "  [note] This is training-time F1. Before Phase 1 promotion, "
                 "use evaluate.py + promote.py with CRDDC2022 F1."
