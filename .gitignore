@@ -214,6 +214,8 @@ runs/
 mlruns/
 outputs/
 logs/
+*.pt
+*.onnx
 
 # VSCode
 .vscode/

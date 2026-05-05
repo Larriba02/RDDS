@@ -95,10 +95,21 @@ Within the official train split, a `SAMPLE_RATIO` controls how much data is used
 
 A fixed baseline of **1,000 images per country** is always reserved for validation and cross-run comparison. This subset is consistent across all experiments — it never changes regardless of `SAMPLE_RATIO`. This allows meaningful comparison of hyperparameter runs throught the project.
 
-| Phase            | SAMPLE_RATIO | Countries | Purpose                                                                    |
-| ---------------- | ------------ | --------- | -------------------------------------------------------------------------- |
-| Phase 0 (laptop) | ~0.10        | All 6     | Pipeline validation + hyperparameter exploration. Small % of each country. |
-| Phase 1 (A100)   | 1.00         | All 6     | Full training.                                                             |
+| Phase                      | SAMPLE_RATIO     | Purpose                                                        |
+| -------------------------- | ---------------- | -------------------------------------------------------------- |
+| Phase 0 — M (laptop)       | 0.10→0.25→0.50→1.0 | F1-vs-data curve, pipeline validation. Baseline: F1=0.598.  |
+| Step 3.5 — J (RTX 4060)    | 0.10→0.25→1.0    | Hyperparameter funnel: screen all configs cheap, full run only for the winner. |
+| Phase 1 — cluster (A100)   | 1.00             | Full training with best hyperparams on YOLO11s and YOLO11m.   |
+
+### Hyperparameter funnel (Step 3.5)
+
+All candidate configurations are first screened at `--sample-ratio 0.10`. Only configs that match or beat the baseline F1 at that ratio advance to `0.25`. The single winner at `0.25` runs at `1.0`. This avoids spending 8–12 h on a full run for a config that would have been eliminated in 2 h.
+
+```
+Round 1  0.10   all configs    gate: F1 ≥ 0.411 (Phase 0 baseline at 0.10)
+Round 2  0.25   top 2 only     gate: F1 ≥ 0.501 (Phase 0 baseline at 0.25)
+Round 3  1.00   winner only    gate: F1 > 0.608 to auto-promote (baseline + 0.01)
+```
 
 The **test split is always 100%** regardless of `SAMPLE_RATIO`. Partial test evaluation would make results incomparable across runs and against published benchmarks.
 

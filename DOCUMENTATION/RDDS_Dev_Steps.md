@@ -1,8 +1,8 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.7 — May 2026*
+*Version 1.8 — May 2026*
 
-This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
+Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
 ---
 
@@ -265,6 +265,79 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 - [x] MLflow has logged runs.
 - [x] Backblaze has `best.pt`, `last.pt`, and `best.onnx` for each run.
 - [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
+
+---
+
+## 🔄 STEP 3.5 — Hyperparameter Search (J, RTX 4060)
+
+**Owner:** J  
+**Status:** In progress  
+**Goal:** Find a hyperparameter configuration that beats the Phase 0 baseline (F1=0.598) before committing A100 time to Phase 1.
+
+### Protocol — funnel screening
+
+Run all candidate configs at low sample ratio first. Only promote survivors to higher ratios. This keeps each screening round cheap (~2–3 h per run on RTX 4060).
+
+```
+Round 1  --sample-ratio 0.10   all 4 configs   baseline ref: F1=0.411
+Round 2  --sample-ratio 0.25   top 2 configs   baseline ref: F1=0.501
+Round 3  --sample-ratio 1.00   winner only     baseline ref: F1=0.598
+```
+
+**Gate rule:** a config advances if its F1 at the current ratio is ≥ baseline F1 at that ratio. The final winner at 1.0 must exceed F1=0.608 (baseline + PROMOTE_MARGIN=0.01) to auto-promote.
+
+### Prerequisites (J already has these from Step 2)
+- Dataset downloaded and converted to YOLO format (`RDD_DATA_ROOT` set in `.env`)
+- `logs/splits.json` present
+- MongoDB connected (`MONGO_URI` in `.env`)
+- Backblaze credentials in `.env`
+
+```bash
+git pull origin main
+pip install -r requirements.txt   # pins onnxslim==0.1.34, adds streamlit+plotly
+```
+
+### Round 1 — screening at 10% (~2–3 h each)
+
+Run in order. Each run uploads results to MongoDB automatically — check the dashboard between runs.
+
+```bash
+# Config A: cosine LR schedule (change from linear)
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 40 --batch 16 --patience 12 --lr0 0.01 --lrf 0.01 --cos-lr
+
+# Config B: AdamW optimizer with lower LR
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 40 --batch 16 --patience 12 --lr0 0.001 --lrf 0.1 --optimizer AdamW
+
+# Config C: higher initial LR + cosine + aggressive decay
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 35 --batch 16 --patience 10 --lr0 0.02 --lrf 0.005 --cos-lr
+
+# Config D: quick convergence check (early stop baseline)
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 25 --batch 16 --patience 8 --lr0 0.01 --lrf 0.01 --cos-lr
+```
+
+**After Round 1:** pick the 2 configs with highest F1. If all are below F1=0.411 (Round 1 baseline), report back before continuing.
+
+### Round 2 — top 2 configs at 25%
+
+Replace `--sample-ratio 0.10` with `--sample-ratio 0.25` for the 2 survivors. Gate: F1 ≥ 0.501.
+
+### Round 3 — winner at 100%
+
+Replace `--sample-ratio 0.25` with `--sample-ratio 1.0` for the best config. If F1 > 0.608 the script auto-promotes it to `is_production=True`.
+
+### Monitoring
+
+```bash
+streamlit run src/dashboard.py   # http://localhost:8501
+```
+
+The Overview page shows the F1-vs-data curve updating in real time. The Run Detail page shows per-epoch training curves for any selected run.
+
+### Done when
+- [ ] Round 1 complete — 4 configs at 0.10, best 2 identified.
+- [ ] Round 2 complete — 2 configs at 0.25, winner identified.
+- [ ] Round 3 complete — winner at 1.0, F1 reported back to M.
+- [ ] If F1 > 0.608: auto-promoted to production. If not: proceed to Phase 1 with baseline hyperparams.
 
 ---
 

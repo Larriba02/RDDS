@@ -14,7 +14,13 @@ Run:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+# Ensure repo root is on sys.path so `src.*` imports work regardless of CWD.
+_REPO_ROOT = Path(__file__).parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import mlflow
 import pandas as pd
@@ -33,7 +39,6 @@ from src.db.connection import get_db  # noqa: E402
 # Config
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).parents[1]
 RUNS_DIR = _REPO_ROOT / "runs" / "train"
 MLFLOW_URI = (_REPO_ROOT / "mlruns").resolve().as_uri()
 CLASS_NAMES = ["D00", "D10", "D20", "D40"]
