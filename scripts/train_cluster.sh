@@ -43,13 +43,17 @@
 #   and increase once you know the allocation.
 #
 # Environment variables (all override-able via --export):
-#   MODEL         yolo11s | yolo11m
+#   MODEL         yolo11m  (yolo11s not run on cluster)
 #   SAMPLE_RATIO  Fraction of train pool to use  (1.0 for Phase 1)
 #   EPOCHS        Hard epoch cap  (1 for smoke test, 100 for Phase 1)
 #   BATCH         Total batch size across all GPUs
 #   PATIENCE      Early-stopping patience  (1 for smoke test, 20 for Phase 1)
 #   DEVICE        CUDA device(s): "0" for 1 GPU, "0,1,2,3" for 4-GPU DDP
 #   CACHE         "disk" | "ram" | "False"  (disk recommended for cluster)
+#   LR0           Initial learning rate  (default: 0.01)
+#   LRF           Final LR as fraction of LR0  (default: 0.01)
+#   COS_LR        1 to enable cosine LR schedule, 0 for linear  (default: 0)
+#   OPTIMIZER     auto | SGD | AdamW | ...  (default: auto)
 #   DATA_ROOT     Absolute path to the RDD2022 dataset root on the cluster node
 #   SMOKE_TEST    Set to 1 to override DATA_ROOT with the tiny synthetic dataset
 #
@@ -71,13 +75,17 @@
 set -euo pipefail
 
 # --- Defaults (override via --export) ----------------------------------------
-MODEL="${MODEL:-yolo11s}"
+MODEL="${MODEL:-yolo11m}"
 SAMPLE_RATIO="${SAMPLE_RATIO:-1.0}"
 EPOCHS="${EPOCHS:-100}"
 BATCH="${BATCH:-32}"
 PATIENCE="${PATIENCE:-20}"
 DEVICE="${DEVICE:-0}"
 CACHE="${CACHE:-disk}"
+LR0="${LR0:-0.01}"
+LRF="${LRF:-0.01}"
+COS_LR="${COS_LR:-0}"
+OPTIMIZER="${OPTIMIZER:-auto}"
 SMOKE_TEST="${SMOKE_TEST:-0}"
 
 # --- Resolve data root -------------------------------------------------------
@@ -171,6 +179,11 @@ python -m src.db.test_connection
 echo "--- Starting training ---"
 echo "  model=${MODEL}  sample_ratio=${SAMPLE_RATIO}  epochs=${EPOCHS}"
 echo "  batch=${BATCH}  patience=${PATIENCE}  device=${DEVICE}  cache=${CACHE}"
+echo "  lr0=${LR0}  lrf=${LRF}  cos_lr=${COS_LR}  optimizer=${OPTIMIZER}"
+
+# Build optional flags
+COS_LR_FLAG=""
+[[ "${COS_LR}" == "1" ]] && COS_LR_FLAG="--cos-lr"
 
 python -m src.training.train \
     --model        "${MODEL}" \
@@ -179,6 +192,10 @@ python -m src.training.train \
     --batch        "${BATCH}" \
     --patience     "${PATIENCE}" \
     --device       "${DEVICE}" \
-    --cache        "${CACHE}"
+    --cache        "${CACHE}" \
+    --lr0          "${LR0}" \
+    --lrf          "${LRF}" \
+    --optimizer    "${OPTIMIZER}" \
+    ${COS_LR_FLAG}
 
 echo "--- Training complete ---"
