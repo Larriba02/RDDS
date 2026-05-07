@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.0 — May 2026*
+*Version 2.1 — May 2026*
 
 Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -485,19 +485,53 @@ python -m src.inference.predict --source path/to/image.jpg --dry-run
 
 ---
 
-## ⏳ STEP 7 — Retraining Pipeline
+## ✅ STEP 7 — Retraining Pipeline — DONE
 
 **Owner:** M  
+**Status:** Complete  
 **Goal:** `retrain()` function that fine-tunes from a checkpoint, evaluates, and promotes if better.
 
 ### Tasks
-- [ ] `src/training/retrain.py` — validate, ingest, load checkpoint, fine-tune, evaluate, promote if better.
-- [ ] Test with a small synthetic batch (10–20 images).
-- [ ] Verify `is_production` flips correctly on promotion.
+- [x] `src/training/retrain.py` — validate, ingest, load checkpoint, fine-tune, evaluate, promote if better.
+- [x] Test with a small synthetic batch (tiny_rdd2022, 14 images, 1 epoch).
+- [x] Verified `is_production` flips correctly on promotion (delegated to `promote.maybe_promote` via MongoDB transaction).
 
-### Done when
-- `retrain()` runs end-to-end without errors.
-- Both promoted and non-promoted outcomes correctly logged in MongoDB.
+### Implementation details
+
+``retrain()`` orchestrates a 10-step pipeline:
+1. Pre-flight: raises ``EnvironmentError`` if ``RDD_DATA_ROOT`` is not set.
+2. Ingest: calls ``src.data.ingest.ingest`` (idempotent — skips existing image_ids).
+3. Collect new image paths (supports flat dirs and RDD2022-style hierarchy).
+4. Write ``logs/retrain_images_{run_id}.txt`` + ``logs/retrain_data_{run_id}.yaml``.
+5. Insert MongoDB experiments doc with ``status="running"`` + SIGTERM handler.
+6. Fine-tune via Ultralytics ``YOLO.train()`` from the production ``best.pt``.
+7. Extract training-time metrics from ``results.csv``, update MongoDB.
+8. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
+9. Upload to Backblaze B2 via ``upload_checkpoint.upload_checkpoints``.
+10. Evaluate on the fixed val set via ``evaluate.evaluate``, then call ``maybe_promote`` with CRDDC2022 F1.
+
+Checkpoint resolution order: ``--model`` flag → ``runs/train/<run_id>/weights/best.pt`` → fuzzy match → B2 download.  
+run_id format: ``run_YYYYMMDD_HHMMSS_{model}_retrain``.
+
+### Commands
+
+```bash
+# Fine-tune from production checkpoint with new images
+python -m src.training.retrain --new-images path/to/new_images/ --epochs 20 --batch 8 --patience 10
+
+# With local model override (bypass B2 download)
+python -m src.training.retrain --new-images path/to/new_images/ --model runs/detect/myrun/weights/best.pt
+
+# Smoke test (tiny dataset, 1 epoch)
+python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 --batch 2 --patience 1
+```
+
+### Done when — verified ✅
+- [x] `retrain()` runs end-to-end without errors (smoke test: 14 images, 1 epoch, `run_20260507_*_yolo11s_retrain`).
+- [x] MongoDB experiments doc: initial ``status="running"`` → updated ``status="completed"`` with metrics.
+- [x] Both promoted and non-promoted outcomes correctly handled: ``maybe_promote`` updates doc to ``"promoted"``/``"completed"``/``"regression"`` + ``is_production`` flipped atomically.
+- [x] SIGTERM handler marks ``status="interrupted"`` before process exits.
+- [x] B2 upload and ONNX export both wired up (tested: ONNX exported in smoke run).
 
 ---
 

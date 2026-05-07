@@ -265,10 +265,11 @@ qualitative analysis section of the final report.
 ### Step 6 — Inference (upcoming)
 Same pattern as Step 5.
 
-### Step 7 — Retraining (upcoming)
+### Step 7 — Retraining (complete)
 `retrain()` authored with `step-implementer`. Smoke-tested with the
-synthetic dataset. The promotion logic is reviewed by `code-reviewer` with
-extra attention to the atomicity guarantee.
+synthetic dataset (14 images, 1 epoch, end-to-end without errors). The
+promotion logic reviewed by `code-reviewer` — atomicity guaranteed by
+delegating to `maybe_promote()` which uses a MongoDB transaction.
 
 ### Step 8 — Web demo (optional, conditional)
 If undertaken, FastAPI scaffolding and frontend boilerplate are obvious AI

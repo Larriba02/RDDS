@@ -1,6 +1,6 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.3 — May 2026*
+*Version 2.4 — May 2026*
 
 ---
 
@@ -418,34 +418,50 @@ A simple single-page interface (generated with an AI coding tool) that allows up
 
 ## Stage 6 — Retraining Pipeline
 
+**Status:** Complete — `src/training/retrain.py` implemented and smoke-tested.
+
 ### Design philosophy
 
 Retraining is implemented as a **manually triggered function**, not an autonomous continuous process. This is a deliberate scope decision: autonomous retraining systems require monitoring, rollback logic, data drift detection, and alerting infrastructure that is out of scope for a two-month project. A manually triggered function fulfils the project requirement, is fully auditable, and is achievable in the available time.
 
 ### How it works
 
-```python
-retrain(new_images_path: str, base_model_version: str) -> str
-# returns: new model version id
+```bash
+python -m src.training.retrain \
+    --new-images path/to/new_images/ \
+    --epochs 20 \
+    --batch 8 \
+    --patience 10
 ```
 
-Execution steps:
+The `retrain()` function executes a 10-step pipeline:
 
-1. **Validate** new images: check file integrity, annotation format, bbox coordinates (same validation as Stage 1).
-2. **Ingest** validated images into MongoDB (`images_metadata`) with split assignment.
-3. **Load checkpoint** of `base_model_version` from filesystem.
-4. **Fine-tune** from checkpoint on the combined dataset (existing training set + new images), using the same hyperparameter config as the original training run.
-5. **Evaluate** the new model on the fixed validation set (1,000 images per country, ground-truth available). Compute **F1 (primary)** and mAP@0.5 (secondary). Average F1 across the 6 countries — matches the CRDDC2022 ranking convention. The official test split has no ground-truth labels and cannot be used for metric computation.
-6. **Compare** against current production model using the primary metric with a minimum improvement threshold.
-   - If `F1_new > F1_current + 0.01` (absolute): set new model `is_production=True`, set previous model `is_production=False`. Log result to MongoDB.
-   - If `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` (noise band): keep current production model, but log the new run as `status="completed"` with the delta for manual review.
-   - If `F1_new < F1_current − 0.005`: regression. Keep current production. Log as non-promoted with the delta and investigate.
+1. **Pre-flight** — raises `EnvironmentError` if `RDD_DATA_ROOT` is not set.
+2. **Ingest** — writes new image metadata to MongoDB `images_metadata` (idempotent; skips existing `image_id`s). Calls `src.data.ingest.ingest` directly.
+3. **Collect images** — walks `--new-images` recursively; supports flat directories and RDD2022-style `country/split/images/` hierarchy.
+4. **Write data.yaml** — generates `logs/retrain_images_{run_id}.txt` and `logs/retrain_data_{run_id}.yaml`. Inserts MongoDB `experiments` doc with `status="running"` + SIGTERM handler.
+5. **Fine-tune** — `YOLO(production_checkpoint).train(seed=42, ...)`. run_id format: `run_YYYYMMDD_HHMMSS_{model}_retrain`.
+6. **Extract metrics** — reads `results.csv`; training-time metrics only (unreliable on new-image-only val set).
+7. **Update MongoDB** — `status="completed"` with training-time metrics, before any export/upload.
+8. **Export ONNX** — subprocess call to keep crashes isolated from the main process.
+9. **Upload B2** — calls `src.training.upload_checkpoint.upload_checkpoints`.
+10. **Evaluate + promote** — calls `src.evaluation.evaluate.evaluate(run_id=..., split="val")` on the fixed 1,000-per-country validation set, then `src.training.promote.maybe_promote` with the returned CRDDC2022 F1.
 
-The `+0.01` improvement margin is a safeguard against promoting noise-level differences on the finite validation set. It can be tightened once variance across seeds is characterised (see proposed deltas).
+Checkpoint resolution order: `--model` override → `runs/train/<run_id>/weights/best.pt` → fuzzy match → B2 download from MongoDB.
+
+### Promotion rule
+
+| Condition | Outcome |
+|-----------|---------|
+| `F1_new > F1_current + 0.01` | Promoted — `is_production` flipped atomically via MongoDB transaction. Old model marked `"superseded"`. |
+| `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` | Noise band — logged as `"completed"`, not promoted. |
+| `F1_new < F1_current − 0.005` | Regression — logged as `"completed"`. Investigate before next retrain. |
 
 ### Why fine-tune from checkpoint instead of retraining from scratch?
 
 Fine-tuning from an existing checkpoint is faster (converges in fewer epochs), typically more accurate (starts from a strong initialisation), and preserves the knowledge already learned from the original dataset. Retraining from scratch each time would be wasteful and would make retraining on the laptop impractical.
+
+For full documentation of the retraining pipeline see `DOCUMENTATION/IN DETAIL/retraining.md`.
 
 ---
 
