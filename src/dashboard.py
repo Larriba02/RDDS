@@ -111,6 +111,28 @@ def load_experiments() -> pd.DataFrame:
     return df.sort_values("timestamp", ascending=False).reset_index(drop=True)
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_validation_results() -> list[dict]:
+    try:
+        db = get_db()
+    except Exception:
+        return []
+    return list(
+        db["experiments"].find(
+            {"metrics.evaluation_val": {"$exists": True}},
+            {
+                "_id": 0,
+                "run_id": 1,
+                "model": 1,
+                "sample_ratio": 1,
+                "is_production": 1,
+                "status": 1,
+                "metrics.evaluation_val": 1,
+            },
+        )
+    )
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_results_csv(run_id: str) -> pd.DataFrame | None:
     csv_path = RUNS_DIR / run_id / "results.csv"
@@ -171,7 +193,7 @@ with st.sidebar:
     st.caption("Road Damage Detection System")
     page = st.radio(
         "Navigate",
-        ["Overview", "Experiments", "Run Detail", "MLflow"],
+        ["Overview", "Experiments", "Validation", "Run Detail", "MLflow"],
         label_visibility="collapsed",
     )
     st.divider()
@@ -367,6 +389,129 @@ elif page == "Experiments":
         )
         fig2.update_layout(xaxis_range=[0, 1], yaxis_range=[0, 1], height=350)
         st.plotly_chart(fig2, use_container_width=True)
+
+# ---------------------------------------------------------------------------
+# Page: Validation
+# ---------------------------------------------------------------------------
+
+elif page == "Validation":
+    st.title("Validation Results")
+    st.caption("CRDDC2022 protocol — F1 @ IoU ≥ 0.5, fixed validation set (1 000 images/country)")
+
+    val_docs = load_validation_results()
+    if not val_docs:
+        st.warning("No evaluation results found. Run `python -m src.evaluation.evaluate` first.")
+        st.stop()
+
+    COUNTRIES = ["China_Drone", "China_MotorBike", "Czech", "India", "Japan", "Norway", "United_States"]
+
+    run_labels = []
+    for doc in val_docs:
+        label = doc["run_id"]
+        if doc.get("is_production"):
+            label += " ★"
+        run_labels.append(label)
+
+    label_to_doc = dict(zip(run_labels, val_docs))
+
+    selected_labels = st.multiselect("Runs to compare", run_labels, default=run_labels)
+    if not selected_labels:
+        st.info("Select at least one run.")
+        st.stop()
+
+    selected_docs = [label_to_doc[lbl] for lbl in selected_labels]
+
+    # Summary table
+    st.subheader("Summary")
+    summary_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        ev = doc["metrics"]["evaluation_val"]
+        row = {
+            "Run": label,
+            "Model": doc.get("model", ""),
+            "Sample ratio": doc.get("sample_ratio"),
+            "F1 overall": ev.get("F1_overall"),
+            "Precision": ev.get("precision_overall"),
+            "Recall": ev.get("recall_overall"),
+            "mAP@0.5": ev.get("mAP50_overall"),
+        }
+        for c in COUNTRIES:
+            row[c] = ev.get("F1_per_country", {}).get(c)
+        summary_rows.append(row)
+
+    df_summary = pd.DataFrame(summary_rows)
+    fmt_cols = ["F1 overall", "Precision", "Recall", "mAP@0.5"] + COUNTRIES
+    for col in fmt_cols:
+        if col in df_summary.columns:
+            df_summary[col] = df_summary[col].apply(
+                lambda v: round(v, 4) if v is not None and not pd.isna(v) else None
+            )
+    st.dataframe(
+        df_summary,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Sample ratio": st.column_config.NumberColumn("Sample ratio", format="%.2f"),
+            **{c: st.column_config.NumberColumn(c, format="%.4f") for c in fmt_cols},
+        },
+    )
+
+    st.divider()
+
+    # F1 per country
+    st.subheader("F1 per country")
+    country_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        for country, f1 in doc["metrics"]["evaluation_val"].get("F1_per_country", {}).items():
+            country_rows.append({"Run": label, "Country": country, "F1": f1})
+
+    if country_rows:
+        fig_country = px.bar(
+            pd.DataFrame(country_rows),
+            x="Country", y="F1", color="Run", barmode="group",
+            title="F1 per country", height=400,
+        )
+        fig_country.update_layout(yaxis_range=[0, 1], xaxis_title=None)
+        st.plotly_chart(fig_country, use_container_width=True)
+
+    st.divider()
+
+    # F1 per class
+    st.subheader("F1 per damage class")
+    class_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        for cls, f1 in doc["metrics"]["evaluation_val"].get("F1_per_class", {}).items():
+            class_rows.append({"Run": label, "Class": cls, "F1": f1})
+
+    if class_rows:
+        fig_class = px.bar(
+            pd.DataFrame(class_rows),
+            x="Class", y="F1", color="Run", barmode="group",
+            title="F1 per class  (D00=lineal, D10=transversal, D20=longitudinal, D40=otros)",
+            height=380,
+        )
+        fig_class.update_layout(yaxis_range=[0, 1], xaxis_title=None)
+        st.plotly_chart(fig_class, use_container_width=True)
+    else:
+        st.info("No per-class F1 data available.")
+
+    # Overall comparison (only meaningful with multiple runs)
+    if len(selected_docs) > 1:
+        st.divider()
+        st.subheader("F1 overall comparison")
+        overall_rows = [
+            {"Run": label, "F1": doc["metrics"]["evaluation_val"].get("F1_overall", 0)}
+            for doc, label in zip(selected_docs, selected_labels)
+        ]
+        df_overall = pd.DataFrame(overall_rows).sort_values("F1", ascending=True)
+        fig_overall = px.bar(
+            df_overall, x="F1", y="Run", orientation="h",
+            title="F1 overall (CRDDC2022)",
+            height=max(250, len(df_overall) * 45),
+        )
+        fig_overall.update_layout(xaxis_range=[0, 1], yaxis_title=None)
+        st.plotly_chart(fig_overall, use_container_width=True)
+
 
 # ---------------------------------------------------------------------------
 # Page: Run Detail

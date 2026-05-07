@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.8 — May 2026*
+*Version 1.9 — May 2026*
 
 Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -371,20 +371,75 @@ seed:         42
 
 ---
 
-## ⏳ STEP 5 — Evaluation
+## ✅ STEP 5 — Evaluation — DONE
 
 **Owner:** M  
-**Goal:** Final quantitative and qualitative evaluation on official test split.
+**Status:** Complete  
+**Goal:** Final quantitative evaluation on the validation set + visual inspection on both val and test splits.  
+**Full reference:** `DOCUMENTATION/IN DETAIL/evaluation.md`
+
+### Background — why val, not test
+
+The RDD2022 dataset ships without ground-truth labels for the `test/` images.
+Those images are the official CRDDC2022 competition holdout; labels are kept
+by the organisers and were only used to score challenge submissions (portal
+closed 2022). We therefore report metrics on the **validation set** — the
+fixed held-out 1 000 images/country carved from the training pool, which has
+GT labels. The official test images are used for qualitative inspection only.
+
+```
+RDD2022 train/images/  ──► val   (7 000 images, GT available)  → reported metric
+                       ──► train (31 385 images)
+RDD2022 test/images/   ──► test  (9 035 images, no GT)         → qualitative only
+```
 
 ### Tasks
-- [ ] `src/evaluation/evaluate.py` — mAP@0.5, F1, Precision, Recall per class and globally. IoU=0.5, confidence=0.5.
-- [ ] `src/evaluation/qualitative.py` — 50 images per class (200 total). Save to `outputs/qualitative/`.
-- [ ] Save all metrics to MongoDB `experiments` doc of the production model.
 
-### Done when
-- Metrics computed on 100% of official test split.
-- Per-class breakdown available.
-- 200 qualitative samples saved and inspected.
+- [x] `src/evaluation/evaluate.py`
+  - `--split val` (default): F1, Precision, Recall, mAP@0.5 per class and
+    per country on the validation set. IoU=0.5, conf=0.5.
+    Writes to `experiments.metrics.evaluation_val` in MongoDB.
+  - `--split both`: val metrics + inference summary on test split
+    (detection counts and avg confidence per class; no F1 possible).
+    Writes test summary to `experiments.metrics.evaluation_test`.
+    Saves per-image predictions to `outputs/test_predictions_{run_id}.json`.
+
+- [x] `src/evaluation/qualitative.py`
+  - `--split val` (default): 50 images per damage class from val set.
+    GT boxes in green + model predictions in red. Output: `outputs/qualitative/val/`
+  - `--split test`: 50 images per country from official test split.
+    Predictions only (no GT). Output: `outputs/qualitative/test/`
+  - `--split both`: runs both above.
+
+- [x] **Execute on real data and verify MongoDB writes.**
+
+### Commands
+
+```bash
+# Full quantitative evaluation (val set):
+python -m src.evaluation.evaluate
+
+# Val metrics + test inference summary:
+python -m src.evaluation.evaluate --split both
+
+# Visual samples — val (GT+pred) and test (pred only):
+python -m src.evaluation.qualitative --split both
+```
+
+### Done when — verified ✅
+- [x] `evaluate.py --split both` completes without errors.
+- [x] `experiments.metrics.evaluation_val` written to MongoDB for production model.
+- [x] Per-class and per-country F1 available.
+- [x] `qualitative.py --split both` completes — visual samples inspected.
+- [x] `outputs/qualitative/val/` and `outputs/qualitative/test/` populated.
+
+### Step 5 results (YOLO11s, sample_ratio=1.0, run_20260504_202658)
+- F1 overall: 0.4581 — Precision: 0.8832 — Recall: 0.3093 — mAP@0.5: 0.5960
+- Best country: China_MotorBike (F1=0.663) — Worst: Czech (F1=0.085)
+- Best class: D20 longitudinal (F1=0.551) — Worst: D40 otros (F1=0.282)
+- Test inference: 9,035 images, 29% detection rate
+- Auto-evaluation on promotion implemented in `promote.py`
+- Validation dashboard page added to `src/dashboard.py`
 
 ---
 

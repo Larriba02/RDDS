@@ -139,6 +139,7 @@ def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
             old_run_id=production["run_id"] if production else None,
             timestamp=now,
         )
+        _auto_evaluate(run_id)
     else:
         # Just mark the run as completed (or regression — same field value).
         experiments.update_one(
@@ -218,6 +219,17 @@ def _apply_promotion(run_id: str, old_run_id: str | None, timestamp: str) -> Non
     print(f"Promoted {run_id} to production.")
     if old_run_id:
         print(f"  Previous production model {old_run_id} marked superseded.")
+
+
+def _auto_evaluate(run_id: str) -> None:
+    """Run evaluate.py after promotion. Failures are non-fatal."""
+    try:
+        from src.evaluation.evaluate import evaluate  # lazy import — heavy deps
+        print(f"\n[auto-eval] Running CRDDC2022 evaluation for {run_id} ...")
+        evaluate(run_id=run_id)
+        print("[auto-eval] Done.")
+    except Exception as exc:
+        print(f"[auto-eval] WARNING: evaluation failed (promotion is still valid): {exc}")
 
 
 def _parse_args() -> argparse.Namespace:

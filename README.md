@@ -130,7 +130,13 @@ and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
 - DOCUMENTATION/RDDS_Dev_Steps.md — step-by-step development guide
 - DOCUMENTATION/RDDS_Pipeline.md — full pipeline reference
 - DOCUMENTATION/IN DETAIL/ — detailed guides for each pipeline stage
-- DOCUMENTATION/IN DETAIL/ai_assistance.md — AI tooling policy and configuration
+  - [dashboard.md](DOCUMENTATION/IN%20DETAIL/dashboard.md) — experiment tracking dashboard and validation results viewer
+  - [evaluation.md](DOCUMENTATION/IN%20DETAIL/evaluation.md) — CRDDC2022 evaluation protocol, dataset splits, reported metrics
+  - [training.md](DOCUMENTATION/IN%20DETAIL/training.md) — training pipeline, Phase 0/1, hyperparameters
+  - [mongo.md](DOCUMENTATION/IN%20DETAIL/mongo.md) — MongoDB schema, collections, atomic promotion
+  - [data.md](DOCUMENTATION/IN%20DETAIL/data.md) — dataset download, conversion, ingestion
+  - [setup.md](DOCUMENTATION/IN%20DETAIL/setup.md) — environment setup and credentials
+  - [ai_assistance.md](DOCUMENTATION/IN%20DETAIL/ai_assistance.md) — AI tooling policy and configuration
 
 ## AI-assisted development
 This project uses AI tooling as a development assistant for code scaffolding,
