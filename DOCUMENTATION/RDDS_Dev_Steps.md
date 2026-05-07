@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.9 — May 2026*
+*Version 2.0 — May 2026*
 
 Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -444,17 +444,44 @@ python -m src.evaluation.qualitative --split both
 
 ---
 
-## ⏳ STEP 6 — Inference Module
+## ✅ STEP 6 — Inference Module — DONE
 
 **Owner:** M  
+**Status:** Complete  
 **Goal:** Script that takes an image or folder and produces annotated output + MongoDB write.
 
 ### Tasks
-- [ ] `src/inference/predict.py` — loads `is_production=True` model, outputs annotated images, writes to `predictions` collection.
-- [ ] `src/inference/extract_frames.py` — extract frames from video at 1fps.
+- [x] `src/inference/predict.py` — loads `is_production=True` model, outputs annotated images, writes to `predictions` collection.
+- [x] `src/inference/extract_frames.py` — extract frames from video at 1fps.
 
-### Done when
-- Full video demo workflow works: `video → frames → predict → annotated output`.
+### Commands
+
+```bash
+# Extract frames from a video at 1 fps:
+python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+
+# Run inference on a single image (production model from MongoDB):
+python -m src.inference.predict --source path/to/image.jpg
+
+# Run inference on a folder of images:
+python -m src.inference.predict --source path/to/folder/ --output-dir outputs/predictions/
+
+# Full video → annotated frames workflow:
+python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+python -m src.inference.predict --source outputs/frames/ --output-dir outputs/predictions/
+
+# Local model override (bypass MongoDB B2 download):
+python -m src.inference.predict --source path/to/image.jpg --model runs/train/.../best.pt
+
+# Dry run (skip MongoDB write, still saves annotated images):
+python -m src.inference.predict --source path/to/image.jpg --dry-run
+```
+
+### Done when — verified ✅
+- [x] `extract_frames.py` extracts frames at 1 fps, saves `frame_NNNNNN.jpg`, prints summary.
+- [x] `predict.py` runs inference, saves annotated images with coloured bboxes per class, writes to MongoDB `predictions` collection.
+- [x] Idempotent: duplicate `image_id` + `model_version` pairs are skipped on re-run.
+- [x] Full workflow `video → frames → predict → annotated output` chains without errors.
 
 ---
 

@@ -1,6 +1,6 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.2 — May 2026*
+*Version 2.3 — May 2026*
 
 ---
 
@@ -201,15 +201,20 @@ full_path = os.path.join(os.getenv("RDD_DATA_ROOT"), image["filepath"])
 
 ```json
 {
-  "pred_id": "...",
-  "image_id": "...",
+  "pred_id": "<uuid4>",
+  "image_id": "<md5 of source path string>",
   "model_version": "v1.0",
+  "run_id": "run_20260504_202658_yolo11s",
   "timestamp": "2026-03-15T10:00:00Z",
+  "source_path": "/absolute/path/to/image.jpg",
   "detections": [
     { "label": "D40", "bbox": [230, 180, 410, 310], "confidence": 0.91 }
   ]
 }
 ```
+
+Write is idempotent: if a document with the same `image_id` + `model_version` already
+exists, the DB insert is skipped (annotated image is still saved to disk).
 
 ---
 
