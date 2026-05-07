@@ -276,12 +276,13 @@ Mitigation:
 │  Dataset:   All 6 countries, ~10% each (SAMPLE_RATIO=0.10)       │
 │  Model:     YOLO11s                                              │
 │  Config:    batch=8, imgsz=640, epochs=50, amp=True (FP16)       │
-│             patience=15 (early stopping on val/map50)            │
+│             patience=15 (early stopping on metrics/mAP50)            │
 │  Goal:      Verify the full pipeline runs without errors.        │
 │             Explore hyperparameters across all countries.        │
 │             Confirm MongoDB writes, MLflow logging, evaluation.  │
 │             Produce a real (weak) baseline mAP number.           │
-│  Expected:  mAP@0.5 ~0.60–0.65                                   │
+│  Result:    mAP@0.5 = 0.601, F1 = 0.598 (YOLO11s, SAMPLE_RATIO=1.0,   │
+│             run_20260504_202658) — Phase 0 complete ✓                   │
 └──────────────────────────────────────────────────────────────────┘
                             ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -290,7 +291,7 @@ Mitigation:
 │  Dataset:   All 6 countries, full train split (SAMPLE_RATIO=1.0) │
 │  Models:    YOLO11s (confirmed baseline) + YOLO11m (main)        │
 │  Config:    batch=32, imgsz=640, epochs=100, amp=True (FP16)     │
-│             patience=20 (early stopping on val/map50)            │
+│             patience=20 (early stopping on metrics/mAP50)            │
 │  Goal:      Full-performance training. Final evaluation on       │
 │             Norway held-out test set.                            │
 │  Expected:  mAP@0.5 ~0.82–0.88 (YOLO11m)                         │
@@ -429,7 +430,7 @@ Execution steps:
 2. **Ingest** validated images into MongoDB (`images_metadata`) with split assignment.
 3. **Load checkpoint** of `base_model_version` from filesystem.
 4. **Fine-tune** from checkpoint on the combined dataset (existing training set + new images), using the same hyperparameter config as the original training run.
-5. **Evaluate** the new model on the fixed official test split. Compute **F1 (primary)** and mAP@0.5 (secondary). Average F1 across the 6 countries — matches the CRDDC2022 ranking convention.
+5. **Evaluate** the new model on the fixed validation set (1,000 images per country, ground-truth available). Compute **F1 (primary)** and mAP@0.5 (secondary). Average F1 across the 6 countries — matches the CRDDC2022 ranking convention. The official test split has no ground-truth labels and cannot be used for metric computation.
 6. **Compare** against current production model using the primary metric with a minimum improvement threshold.
    - If `F1_new > F1_current + 0.01` (absolute): set new model `is_production=True`, set previous model `is_production=False`. Log result to MongoDB.
    - If `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` (noise band): keep current production model, but log the new run as `status="completed"` with the delta for manual review.
@@ -484,20 +485,15 @@ Fine-tuning from an existing checkpoint is faster (converges in fewer epochs), t
 - **Local storage per node:** 50 GB. RDD2022 processed (~12 GB) fits comfortably. Copy the dataset to local node storage at the start of each job — do not read from network storage during training.
 - **Code format:** Submit Python scripts only. Do not use Jupyter notebooks for cluster jobs.
 
-**Recommended sbatch template:**
+**Cluster job submission:**
+Use `scripts/train_cluster.sh` — see inline comments for all `--export` variables
+(`MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DEVICE`, `CACHE`,
+`LR0`, `LRF`, `COS_LR`, `OPTIMIZER`, `DATA_ROOT`, `SMOKE_TEST`).
+For multi-config sweeps use `scripts/submit_sweep.sh`.
+
 ```bash
-#!/bin/bash
-#SBATCH --job-name=rdds_train
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --output=logs/%j.out
-
-# Copy dataset to local node storage before training
-cp -r /shared/rdd2022_processed $TMPDIR/rdd2022
-
-source activate rdds
-python -m src.training.train --model yolo11m --batch 32 --epochs 100 --data $TMPDIR/rdd2022
+# Single run — YOLO11m, full dataset, single GPU
+sbatch --export=MODEL=yolo11m,SAMPLE_RATIO=1.0,EPOCHS=100,BATCH=32,PATIENCE=20,DATA_ROOT=/path/to/rdd2022,DEVICE=0,CACHE=disk scripts/train_cluster.sh
 ```
 
 ### Shared Database Strategy

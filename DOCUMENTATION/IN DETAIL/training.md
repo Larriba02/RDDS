@@ -95,7 +95,10 @@ python -m src.training.train \
     `./mlruns/` (per-machine, not shared).
 16. **Promote** — calls `maybe_promote(run_id, f1)` if F1 is available.
     Skipped if `--skip-promote` is set or if F1 is None (no detections on
-    tiny datasets).
+    tiny datasets). On successful promotion, `maybe_promote` automatically
+    calls `evaluate()` for the newly promoted run (non-fatal: a warning is
+    printed if evaluation fails but the promotion itself is not rolled back).
+    See `DOCUMENTATION/IN DETAIL/dashboard.md §4`.
 
 ### Prerequisites
 

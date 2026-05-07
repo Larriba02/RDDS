@@ -359,7 +359,8 @@ seed:         42
 ```
 
 ### Tasks
-- [x] `scripts/train_cluster.sh` — sbatch script. Accepts `MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DATA_ROOT`, `SMOKE_TEST` via `--export`. Set `SMOKE_TEST=1` to run on the tiny synthetic dataset instead of `DATA_ROOT`.
+- [x] `scripts/train_cluster.sh` — sbatch script. Accepts `MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DATA_ROOT`, `DEVICE`, `CACHE`, `LR0`, `LRF`, `COS_LR`, `OPTIMIZER`, `SMOKE_TEST` via `--export`. Set `SMOKE_TEST=1` to run on the tiny synthetic dataset instead of `DATA_ROOT`.
+- [x] `scripts/submit_sweep.sh` — submits multiple YOLO11m configs as a sequential SLURM dependency chain (afterok). Fill in the `CONFIGS` array with the winners from Step 3.5 before submitting.
 - [ ] **Cluster smoke test** — `sbatch` a 1-epoch run on `tests/data/tiny_rdd2022/` (the synthetic mini-dataset from Step 2). Must finish without SLURM errors, write a sentinel `experiments` doc to MongoDB, and upload a `best.pt` to Backblaze. This validates SLURM, CUDA, network, and the full pipeline on the cluster node before any real job is queued.
 - [ ] Run YOLO11s first (faster, confirms cluster setup works on real data).
 - [ ] Run YOLO11m after YOLO11s completes successfully.
@@ -511,6 +512,8 @@ rdds/
 │       ├── mongo.md
 │       ├── data.md
 │       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
 │       ├── inference.md
 │       ├── retraining.md
 │       └── ai_assistance.md   # Claude Code / AI usage in this project
@@ -544,7 +547,8 @@ rdds/
 │   └── api/               # optional
 │       └── main.py
 ├── scripts/
-│   └── train_cluster.sh
+│   ├── train_cluster.sh          # single-job SLURM wrapper
+│   └── submit_sweep.sh           # sequential multi-config sweep via SLURM dependency chain
 ├── tests/
 │   └── data/
 │       └── tiny_rdd2022/    # 5 imgs × 2 countries × 4 classes (Step 2 + Step 4 smoke test)
@@ -555,8 +559,7 @@ rdds/
 │   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
 │   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
 │   │                         # doc-syncer, step-implementer
-│   ├── hooks/                # block-push-without-review.py
-│   └── settings.json
+│   └── settings.json         # hooks (block-push-without-review PreToolUse)
 ├── setup.py
 ├── .env.example
 ├── .gitignore
