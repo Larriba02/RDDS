@@ -498,17 +498,25 @@ python -m src.inference.predict --source path/to/image.jpg --dry-run
 
 ### Implementation details
 
-``retrain()`` orchestrates a 10-step pipeline:
+``retrain()`` orchestrates an 11-step pipeline:
 1. Pre-flight: raises ``EnvironmentError`` if ``RDD_DATA_ROOT`` is not set.
 2. Ingest: calls ``src.data.ingest.ingest`` (idempotent — skips existing image_ids).
 3. Collect new image paths (supports flat dirs and RDD2022-style hierarchy).
-4. Write ``logs/retrain_images_{run_id}.txt`` + ``logs/retrain_data_{run_id}.yaml``.
-5. Insert MongoDB experiments doc with ``status="running"`` + SIGTERM handler.
-6. Fine-tune via Ultralytics ``YOLO.train()`` from the production ``best.pt``.
-7. Extract training-time metrics from ``results.csv``, update MongoDB.
-8. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
-9. Upload to Backblaze B2 via ``upload_checkpoint.upload_checkpoints``.
-10. Evaluate on the fixed val set via ``evaluate.evaluate``, then call ``maybe_promote`` with CRDDC2022 F1.
+4. Build mixed training list: new images + stratified sample of the original train
+   pool (``--mix-ratio``, default 0.30) queried from MongoDB ``images_metadata``.
+   **Mixed training is always on** to prevent catastrophic forgetting. Pass
+   ``--mix-ratio 0.0`` to disable. Val split uses the fixed val set from
+   ``splits.json`` for meaningful early-stopping signal.
+5. Write ``logs/retrain_images_{run_id}.txt``, ``logs/retrain_mixed_{run_id}.txt``,
+   ``logs/retrain_val_{run_id}.txt``, ``logs/retrain_data_{run_id}.yaml``.
+6. Insert MongoDB experiments doc with ``status="running"`` + SIGTERM handler.
+7. Fine-tune via Ultralytics ``YOLO.train()`` from the production ``best.pt``.
+   Optional knobs: ``--lr0``, ``--lrf``, ``--cos-lr``, ``--optimizer``, ``--freeze``.
+8. Extract training-time metrics from ``results.csv``, update MongoDB.
+9. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
+10. Upload to Backblaze B2 via ``upload_checkpoint.upload_checkpoints``.
+11. Evaluate on the fixed val set via ``evaluate.evaluate``, then call
+    ``maybe_promote`` with CRDDC2022 F1.
 
 Checkpoint resolution order: ``--model`` flag → ``runs/train/<run_id>/weights/best.pt`` → fuzzy match → B2 download.  
 run_id format: ``run_YYYYMMDD_HHMMSS_{model}_retrain``.
@@ -516,22 +524,30 @@ run_id format: ``run_YYYYMMDD_HHMMSS_{model}_retrain``.
 ### Commands
 
 ```bash
-# Fine-tune from production checkpoint with new images
+# Standard retrain (mixed training on — 30% of original train replayed by default)
 python -m src.training.retrain --new-images path/to/new_images/ --epochs 20 --batch 8 --patience 10
 
-# With local model override (bypass B2 download)
-python -m src.training.retrain --new-images path/to/new_images/ --model runs/detect/myrun/weights/best.pt
+# Conservative fine-tune: freeze backbone, low LR, cosine decay, AdamW
+python -m src.training.retrain --new-images path/to/new_images/ --freeze 10 --lr0 0.001 --lrf 0.01 --cos-lr --optimizer AdamW
 
-# Smoke test (tiny dataset, 1 epoch)
-python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 --batch 2 --patience 1
+# Disable mixed training (new images only — not recommended)
+python -m src.training.retrain --new-images path/to/new_images/ --mix-ratio 0.0
+
+# With local model override (bypass B2 download)
+python -m src.training.retrain --new-images path/to/new_images/ --model runs/train/myrun/weights/best.pt
+
+# Smoke test (tiny dataset, 1 epoch, skip upload and promotion)
+python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 --batch 2 --patience 1 --skip-upload --skip-promote
 ```
 
 ### Done when — verified ✅
-- [x] `retrain()` runs end-to-end without errors (smoke test: 14 images, 1 epoch, `run_20260507_*_yolo11s_retrain`).
+- [x] `retrain()` runs end-to-end without errors (smoke test: 14 images, 1 epoch, `run_20260507_231144_yolo11s_retrain`).
 - [x] MongoDB experiments doc: initial ``status="running"`` → updated ``status="completed"`` with metrics.
 - [x] Both promoted and non-promoted outcomes correctly handled: ``maybe_promote`` updates doc to ``"promoted"``/``"completed"``/``"regression"`` + ``is_production`` flipped atomically.
 - [x] SIGTERM handler marks ``status="interrupted"`` before process exits.
 - [x] B2 upload and ONNX export both wired up (tested: ONNX exported in smoke run).
+- [x] Mixed training: new images + original train sample combined correctly (smoke test: 14 new + 1568 original = 1582 total, exit 0).
+- [x] Fine-tuning knobs (``--lr0``, ``--lrf``, ``--cos-lr``, ``--optimizer``, ``--freeze``) wired to ``YOLO.train()`` — not yet exercised in a full promoted run.
 
 ---
 
