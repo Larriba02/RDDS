@@ -36,7 +36,9 @@ python -m src.training.retrain \
     --new-images tests/data/tiny_rdd2022/ \
     --epochs 1 \
     --batch 2 \
-    --patience 1
+    --patience 1 \
+    --skip-upload \
+    --skip-promote
 ```
 
 ---

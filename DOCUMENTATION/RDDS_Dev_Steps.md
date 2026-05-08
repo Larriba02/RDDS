@@ -17,7 +17,7 @@ Step-by-step development guide for the full team. Each step has a clear goal, th
 - **Dataset:** RDD2022 (CC BY-SA 4.0). 6 countries, ~47k images, PascalVOC XML annotations.
 - **Architecture:** YOLO11s (baseline) + YOLO11m (main). COCO pretrained weights, fine-tuned.
 - **Timeline:** ~2 months to final results.
-- **Full pipeline reference:** RDDS_Pipeline.md (v2.0)
+- **Full pipeline reference:** RDDS_Pipeline.md (v2.4)
 - **Claude standing context:** CLAUDE.md (loaded automatically by Claude Code; contains rules, conventions, and resource pointers)
 
 ---
@@ -55,6 +55,10 @@ onnxslim==0.1.34        # pinned — 0.1.92 segfaults with Ultralytics 8.3.0
 streamlit>=1.35.0       # dashboard
 plotly>=5.22.0          # dashboard charts
 ```
+
+> **Updated after Step 8:** `requirements.txt` now also includes
+> `fastapi>=0.111.0`, `uvicorn[standard]>=0.29.0`, and
+> `python-multipart>=0.0.9` for the optional web demo (`src/api/`).
 
 ### Done criterion — verified ✅
 Any team member can clone the repo, run python setup.py, 
@@ -551,14 +555,32 @@ python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 
 
 ---
 
-## ⏳ STEP 8 — Optional: Web Demo
+## ✅ STEP 8 — Optional: Web Demo — DONE
 
 **Owner:** M (AI-assisted)  
 **Condition:** Only if Steps 3–7 are complete and time allows.
 
 ### Tasks
-- [ ] `src/api/main.py` — FastAPI: `POST /predict`, `GET /model`.
-- [ ] Frontend: single page, upload image/video, display annotated result.
+- [x] `src/api/__init__.py` — empty package marker.
+- [x] `src/api/main.py` — FastAPI app. Routes:
+  - `GET /` — serves `src/api/static/index.html` (single-page frontend).
+  - `GET /model` — returns current production model metadata (run_id, model, F1, mAP50, sample_ratio, timestamp).
+  - `POST /predict` — accepts an image upload (jpg/png), runs YOLO inference, returns JSON detections + base64-encoded annotated image. Writes one document to MongoDB `predictions` (non-fatal on failure).
+- [x] `src/api/static/index.html` — drag-and-drop single-page frontend: uploads image, renders annotated result, shows detections table and model-info card.
+
+### Commands
+
+```bash
+# Start the API server (development — auto-reload on file changes)
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+# Then open http://localhost:8000
+```
+
+### Done when — verified ✅
+- [x] `GET /` serves the frontend without errors.
+- [x] `GET /model` returns production model metadata from MongoDB.
+- [x] `POST /predict` returns detections and annotated image for a test upload.
+- [x] MongoDB `predictions` collection receives one document per API call.
 
 ---
 
@@ -593,6 +615,7 @@ rdds/
 │       ├── dashboard.md
 │       ├── inference.md
 │       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md   # Claude Code / AI usage in this project
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
@@ -621,8 +644,11 @@ rdds/
 │   ├── inference/
 │   │   ├── predict.py
 │   │   └── extract_frames.py
-│   └── api/               # optional
-│       └── main.py
+│   └── api/               # optional web demo (Step 8)
+│       ├── __init__.py
+│       ├── main.py
+│       └── static/
+│           └── index.html
 ├── scripts/
 │   ├── train_cluster.sh          # single-job SLURM wrapper
 │   └── submit_sweep.sh           # sequential multi-config sweep via SLURM dependency chain

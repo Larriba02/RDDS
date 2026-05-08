@@ -128,6 +128,12 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    python -m src.inference.predict --source path/to/image.jpg --model runs/train/.../best.pt
    ```
 
+9. Web demo (Step 8 — optional)
+   ```
+   uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+   # Then open http://localhost:8000
+   ```
+
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
 In the meantime you can still clone the repo, set up the environment,
@@ -148,6 +154,7 @@ and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
   - [dashboard.md](DOCUMENTATION/IN%20DETAIL/dashboard.md) — experiment tracking dashboard and validation results viewer
   - [evaluation.md](DOCUMENTATION/IN%20DETAIL/evaluation.md) — CRDDC2022 evaluation protocol, dataset splits, reported metrics
   - [inference.md](DOCUMENTATION/IN%20DETAIL/inference.md) — inference module: extract_frames, predict, video workflow
+  - [api.md](DOCUMENTATION/IN%20DETAIL/api.md) — web demo: FastAPI routes, frontend, how to run
   - [training.md](DOCUMENTATION/IN%20DETAIL/training.md) — training pipeline, Phase 0/1, hyperparameters
   - [mongo.md](DOCUMENTATION/IN%20DETAIL/mongo.md) — MongoDB schema, collections, atomic promotion
   - [data.md](DOCUMENTATION/IN%20DETAIL/data.md) — dataset download, conversion, ingestion

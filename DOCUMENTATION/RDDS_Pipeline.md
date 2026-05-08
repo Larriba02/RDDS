@@ -39,7 +39,12 @@ The system is a modular end-to-end pipeline that takes raw road images as input 
 │                         │         RETRAINING PIPELINE                 │ │
 │                         │   new data ──▶ fine-tune ──▶ evaluate       │ │
 │                         │            ──▶ promote if better            │ │
-│                         └────────────────────────────────────────────┘ │
+│                         └────────────────────────┬───────────────────┘ │
+│                                                  │                      │
+│                    ┌─────────────────────────────▼──────────────────┐  │
+│                    │   WEB DEMO (optional)  src/api/                 │  │
+│                    │   GET /  ·  GET /model  ·  POST /predict        │  │
+│                    └────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -394,25 +399,33 @@ This approach is not a compromise — it is the correct design choice. It remove
 
 After training, the best checkpoint is exported to **ONNX format**. The inference module loads the ONNX model, not the PyTorch checkpoint. This removes the runtime dependency on Ultralytics and makes the inference pipeline self-contained and portable.
 
-### Optional: Web demo (FastAPI + frontend)
+### Web demo — `src/api/` (complete)
 
-If time allows after the model is trained and evaluated, a minimal web interface can be added. This is the last thing built, never the first — it depends on everything else being complete.
+A minimal FastAPI application (`src/api/main.py`) provides a browser interface
+to the inference pipeline. It is a presentation asset — not a core deliverable —
+and was built after Steps 5–7 were complete.
 
-**Backend — FastAPI:**
+**Routes:**
 
-```python
-POST /predict
-  input:  image file (jpg/png)
-  output: annotated image + JSON detections
-          [{ label, bbox, confidence }]
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Serves the single-page frontend (`src/api/static/index.html`). |
+| `GET` | `/model` | Returns current production model metadata (run_id, model, F1, mAP50, sample_ratio, timestamp). |
+| `POST` | `/predict` | Accepts an image upload (jpg/png). Returns JSON detections and a base64-encoded annotated image. Writes one document to MongoDB `predictions`. |
+
+The API loads the `is_production=True` model once per process (cached in
+`_model_cache`). Model resolution follows the same checkpoint-lookup order as
+`src/inference/predict.py`.
+
+**Run:**
+```bash
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+# Then open http://localhost:8000
 ```
 
-The API loads whichever model has `is_production: True` in MongoDB at startup. It does not need to know which version that is — the registry handles it.
-
-**Frontend:**
-A simple single-page interface (generated with an AI coding tool) that allows uploading an image or video, displays the annotated result with bounding boxes, class labels, and confidence scores, and shows the model version currently in production.
-
-**Scope rule:** if the model is not trained and evaluated by the time this would be started, it is cut. The web demo is a presentation asset, not a technical deliverable.
+**Frontend (`src/api/static/index.html`):** drag-and-drop image upload,
+annotated result display with per-class colour coding, and a detections table
+showing label, bounding box, and confidence score.
 
 ---
 
