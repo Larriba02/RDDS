@@ -120,3 +120,46 @@ evaluate.py ─────────────────────►  
 
 The dashboard never writes to MongoDB.  All writes go through `train.py`,
 `evaluate.py`, and `promote.py`.
+
+---
+
+## 6. CLI reference
+
+### `streamlit run src/dashboard.py` — Launch the experiment tracking dashboard
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+streamlit run src/dashboard.py
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+streamlit run src/dashboard.py
+```
+
+#### Flags
+
+No configurable flags — the dashboard reads its data exclusively from MongoDB
+(`MONGO_URI` in `.env`), `runs/train/*/results.csv`, and the local MLflow
+`mlruns/` directory. All configuration is done through the sidebar inside the
+running app.
+
+The dashboard opens at **http://localhost:8501** by default. To change the port,
+pass Streamlit's own flag:
+
+```bash
+streamlit run src/dashboard.py --server.port 8502
+```
+
+#### Full example
+
+```powershell
+# Windows — default port
+streamlit run src/dashboard.py
+```
+```bash
+# macOS / Linux — default port
+streamlit run src/dashboard.py
+```

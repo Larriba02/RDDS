@@ -176,32 +176,99 @@ python -m src.evaluation.qualitative --split both
 
 ## 7. CLI reference
 
-### evaluate.py
+### `python -m src.evaluation.evaluate` — Quantitative CRDDC2022 evaluation
 
-```
-python -m src.evaluation.evaluate [OPTIONS]
-
-  --run-id RUN_ID       Target run (default: current production model)
-  --split {val,both}    val  = metrics on val set (default)
-                        both = val metrics + test inference summary
-  --conf FLOAT          Confidence threshold (default: 0.5)
-  --iou  FLOAT          IoU threshold (default: 0.5)
-  --device STR          CUDA device, e.g. '0' or 'cpu' (default: '0')
-  --dry-run             Print results without writing to MongoDB
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.evaluation.evaluate
 ```
 
-### qualitative.py
-
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.evaluation.evaluate
 ```
-python -m src.evaluation.qualitative [OPTIONS]
 
-  --run-id RUN_ID              Target run (default: production model)
-  --split {val,test,both}      val  = val images, GT + predictions (default)
-                               test = test images, predictions only
-                               both = runs both
-  --n-per-class INT            Images per class / country (default: 50)
-  --conf FLOAT                 Confidence threshold (default: 0.5)
-  --device STR                 CUDA device (default: '0')
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--run-id` | `str` | `None` (production model) | Target experiment `run_id` | Pass a specific `run_id` to evaluate a non-production run |
+| `--split` | `val` \| `both` | `val` | `val` evaluates the 7,000-image val set with ground truth; `both` additionally runs inference on the 9,039 test images (no GT, detection summary only) | Use `both` when you want a test-split inference summary alongside the val metrics |
+| `--conf` | `float` | `0.5` | Confidence threshold for predictions | Lower to `0.3` to see more detections (higher recall, lower precision); raise to `0.7` for high-precision inspection |
+| `--iou` | `float` | `0.5` | IoU threshold for NMS and metric computation | Keep at `0.5` (CRDDC2022 protocol requirement) |
+| `--device` | `str` | `"0"` | CUDA device: `"0"` for GPU, `"cpu"` for CPU | Pass `cpu` when no GPU is available |
+| `--dry-run` | flag | off | Skip MongoDB write; results are printed but not stored | Use to inspect metrics without modifying the experiments document |
+
+#### Full example
+
+```powershell
+# Windows — evaluate a specific run on both splits, dry run
+python -m src.evaluation.evaluate `
+    --run-id run_20260504_202658_yolo11s `
+    --split both `
+    --conf 0.5 `
+    --iou 0.5 `
+    --device 0 `
+    --dry-run
+```
+```bash
+# macOS / Linux — evaluate a specific run on both splits, dry run
+python -m src.evaluation.evaluate \
+    --run-id run_20260504_202658_yolo11s \
+    --split both \
+    --conf 0.5 \
+    --iou 0.5 \
+    --device 0 \
+    --dry-run
+```
+
+---
+
+### `python -m src.evaluation.qualitative` — Generate visual annotation samples
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.evaluation.qualitative
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.evaluation.qualitative
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--run-id` | `str` | `None` (production model) | Target experiment `run_id` | Evaluate a non-production run's visual output |
+| `--split` | `val` \| `test` \| `both` | `val` | `val` saves GT (green) + predictions (red); `test` saves predictions only (no GT available); `both` runs both | Use `both` for a complete visual review before presenting results |
+| `--n-per-class` | `int` | `50` | Images to sample per damage class (val) or per country (test) | Lower to `10–25` for a quick sanity check; keep at `50` for a thorough review |
+| `--conf` | `float` | `0.5` | Confidence threshold for displayed predictions | Lower to see more predictions on images with few detections |
+| `--device` | `str` | `"0"` | CUDA device: `"0"` for GPU, `"cpu"` for CPU | Pass `cpu` when no GPU is available |
+
+#### Full example
+
+```powershell
+# Windows — full qualitative review of production model, both splits
+python -m src.evaluation.qualitative `
+    --run-id run_20260504_202658_yolo11s `
+    --split both `
+    --n-per-class 50 `
+    --conf 0.5 `
+    --device 0
+```
+```bash
+# macOS / Linux — full qualitative review of production model, both splits
+python -m src.evaluation.qualitative \
+    --run-id run_20260504_202658_yolo11s \
+    --split both \
+    --n-per-class 50 \
+    --conf 0.5 \
+    --device 0
 ```
 
 ---

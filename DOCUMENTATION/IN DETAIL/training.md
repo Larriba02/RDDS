@@ -189,3 +189,111 @@ python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
 | MongoDB doc | `rdds.experiments` collection, `run_id` field |
 | MLflow run | `./mlruns/` (local only) |
 | B2 checkpoints | `checkpoints/{run_id}/best.pt` etc. |
+
+---
+
+## 6. CLI reference
+
+### `python -m src.training.train` — Full training cycle (Phase 0 / Phase 1)
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--model` | `yolo11s` \| `yolo11m` \| `yolo11l` \| `yolo11x` | `yolo11s` | Ultralytics model variant to train | Use `yolo11s` for Phase 0 laptop runs; `yolo11m` for Phase 1 cluster runs |
+| `--sample-ratio` | `float` (0.0–1.0) | `SAMPLE_RATIO` from `.env` | Fraction of training images to use, sampled per country | Phase 0 progression: `0.10` → `0.25` → `0.50` → `1.0` |
+| `--epochs` | `int` | `50` | Maximum training epochs | Phase 0: `50`; Phase 1 full run: `100` |
+| `--batch` | `int` | `8` | Batch size | Match to GPU VRAM: `8` for RTX 4050 6 GB; `32` for A100 40 GB |
+| `--patience` | `int` | `15` | Early-stopping patience (epochs without mAP improvement) | Phase 0: `15`; Phase 1: `20` |
+| `--imgsz` | `int` | `640` | Input image size in pixels | Keep at `640` (RDD2022 standard); change only with explicit justification |
+| `--no-amp` | flag | off (AMP enabled) | Disable FP16 mixed-precision training | Pass if you see AMP-related NaN losses; otherwise leave AMP on |
+| `--lr0` | `float` | `0.01` | Initial learning rate | Lower to `0.001` for fine-tuning; keep default for full training from scratch |
+| `--lrf` | `float` | `0.01` | Final LR as a fraction of `lr0` (LR decays from `lr0` to `lr0 * lrf`) | Increase to `0.1` for a more gradual decay schedule |
+| `--cos-lr` | flag | off (linear decay) | Use cosine learning rate schedule instead of linear | Enable for longer Phase 1 runs where a warmup-then-decay cycle helps |
+| `--optimizer` | `auto` \| `SGD` \| `Adam` \| `AdamW` \| `NAdam` \| `RAdam` \| `RMSProp` | `auto` | Optimizer (Ultralytics selects SGD for YOLO when `auto`) | Keep `auto`; switch to `AdamW` only for experimental runs |
+| `--cache` | `False` \| `ram` \| `disk` | `False` | Cache images to speed up training | `ram` if you have ≥16 GB RAM and a small dataset fraction; `disk` on the cluster |
+| `--workers` | `int` | `8` | Data-loading worker threads | Lower to `4` on Windows if DataLoader errors appear; keep `8` on Linux |
+| `--device` | `str` | `"0"` | CUDA device(s): `"0"` for single GPU, `"0,1,2,3"` for multi-GPU DDP | Match to available hardware; Ultralytics handles DDP spawning internally |
+| `--skip-upload` | flag | off | Skip Backblaze B2 checkpoint upload | Use for local smoke tests without real B2 credentials |
+| `--skip-promote` | flag | off | Skip the promotion check after training | Use for local testing where promotion should not happen |
+
+#### Full example
+
+```powershell
+# Windows — Phase 1 cluster-style full run
+python -m src.training.train `
+    --model yolo11m `
+    --sample-ratio 1.0 `
+    --epochs 100 `
+    --batch 32 `
+    --patience 20 `
+    --lr0 0.01 `
+    --lrf 0.01 `
+    --cos-lr `
+    --optimizer auto `
+    --cache disk `
+    --workers 8 `
+    --device 0
+```
+```bash
+# macOS / Linux — Phase 1 cluster-style full run
+python -m src.training.train \
+    --model yolo11m \
+    --sample-ratio 1.0 \
+    --epochs 100 \
+    --batch 32 \
+    --patience 20 \
+    --lr0 0.01 \
+    --lrf 0.01 \
+    --cos-lr \
+    --optimizer auto \
+    --cache disk \
+    --workers 8 \
+    --device 0
+```
+
+---
+
+### `python -m src.training.promote` — Manually promote a run to production
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--run-id` | `str` | (required) | `run_id` of the candidate experiment in MongoDB | The exact `run_id` printed at the start of `train.py` output |
+| `--f1` | `float` | (required) | Overall F1 score (IoU ≥ 0.5) to compare against the current production model | Pass the CRDDC2022 F1 from `evaluate.py` output, not the training-time F1 |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.training.promote --run-id run_20260504_202658_yolo11s --f1 0.7412
+```
+```bash
+# macOS / Linux
+python -m src.training.promote --run-id run_20260504_202658_yolo11s --f1 0.7412
+```

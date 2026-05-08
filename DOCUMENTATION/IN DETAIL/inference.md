@@ -41,18 +41,39 @@ typical dashcam speed of 40–60 km/h, successive 1-second frames are
 approximately 11–17 m apart, which is more than enough resolution to detect
 all surface damage without processing redundant near-duplicate frames.
 
-### CLI
+### CLI reference
 
-```bash
-python -m src.inference.extract_frames \
-    --video  path/to/video.mp4 \
-    --output-dir  outputs/frames/   # default
+#### `python -m src.inference.extract_frames` — Extract frames from a video
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.inference.extract_frames --video path\to\video.mp4
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--video` | required | Path to video file (mp4, avi, mov, mkv, etc.) |
-| `--output-dir` | `outputs/frames/` | Directory for extracted frames |
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.inference.extract_frames --video path/to/video.mp4
+```
+
+##### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--video` | `path` | (required) | Path to the input video file (mp4, avi, mov, mkv, etc.) | Always required |
+| `--output-dir` | `path` | `outputs/frames/` | Directory where extracted frames are saved as `frame_NNNNNN.jpg` | Change when saving frames for a specific job or experiment |
+
+##### Full example
+
+```powershell
+# Windows
+python -m src.inference.extract_frames --video path\to\video.mp4 --output-dir outputs\frames\
+```
+```bash
+# macOS / Linux
+python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+```
 
 ### Output
 
@@ -121,46 +142,58 @@ so `image_id` in `predictions` is not the same as `image_id` in `images_metadata
 (which uses the relative filepath). The index `(image_id, model_version)` on the
 `predictions` collection exists for the idempotency check.
 
-### CLI
+### CLI reference
 
-```bash
-# Production model from MongoDB (B2 download if needed):
-python -m src.inference.predict \
-    --source path/to/image.jpg
+#### `python -m src.inference.predict` — Run YOLO inference on images
 
-# Directory of images:
-python -m src.inference.predict \
-    --source outputs/frames/ \
-    --output-dir outputs/predictions/
-
-# Local model override:
-python -m src.inference.predict \
-    --source path/to/image.jpg \
-    --model runs/train/run_20260504_202658_yolo11s/weights/best.pt
-
-# Full video workflow:
-python -m src.inference.extract_frames \
-    --video path/to/video.mp4 \
-    --output-dir outputs/frames/
-python -m src.inference.predict \
-    --source outputs/frames/ \
-    --output-dir outputs/predictions/
-
-# Dry run — annotated images saved, no MongoDB write:
-python -m src.inference.predict \
-    --source path/to/image.jpg \
-    --dry-run
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.inference.predict --source path\to\image.jpg
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--source` | required | Single image path or folder of images |
-| `--output-dir` | `outputs/predictions/` | Directory for annotated output images |
-| `--model` | `None` | Local `.pt` path; bypasses MongoDB lookup |
-| `--conf` | `0.5` | Confidence threshold |
-| `--iou` | `0.5` | IoU threshold for NMS |
-| `--device` | `"0"` | CUDA device (`"0"`) or `"cpu"` |
-| `--dry-run` | `False` | Skip MongoDB write |
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.inference.predict --source path/to/image.jpg
+```
+
+##### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--source` | `path` | (required) | Single image file or folder of images. Video files are rejected — use `extract_frames` first. | Always required |
+| `--output-dir` | `path` | `outputs/predictions/` | Directory where annotated images are saved | Change to separate outputs per experiment or session |
+| `--model` | `path` | `None` (MongoDB lookup) | Local `.pt` checkpoint — bypasses MongoDB production-model lookup | Use when the cluster has not run yet and `best.pt` is available locally under `runs/` |
+| `--conf` | `float` | `0.5` | Confidence threshold for inference | Lower to `0.3` to surface weaker detections; raise to `0.7` for high-confidence-only output |
+| `--iou` | `float` | `0.5` | IoU threshold for NMS | Keep at `0.5` for consistency with CRDDC2022 evaluation protocol |
+| `--device` | `str` | `"0"` | CUDA device: `"0"` for GPU, `"cpu"` for CPU | Pass `cpu` when running on a machine without a GPU |
+| `--dry-run` | flag | off | Skip MongoDB write; annotated images are still saved to disk | Use to preview results without polluting the `predictions` collection |
+
+##### Full example
+
+```powershell
+# Windows — run inference on a frames folder with a local checkpoint, dry run
+python -m src.inference.predict `
+    --source outputs\frames\ `
+    --output-dir outputs\predictions\ `
+    --model runs\train\run_20260504_202658_yolo11s\weights\best.pt `
+    --conf 0.5 `
+    --iou 0.5 `
+    --device 0 `
+    --dry-run
+```
+```bash
+# macOS / Linux — run inference on a frames folder with a local checkpoint, dry run
+python -m src.inference.predict \
+    --source outputs/frames/ \
+    --output-dir outputs/predictions/ \
+    --model runs/train/run_20260504_202658_yolo11s/weights/best.pt \
+    --conf 0.5 \
+    --iou 0.5 \
+    --device 0 \
+    --dry-run
+```
 
 ---
 

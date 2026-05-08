@@ -228,3 +228,249 @@ Unknown labels would indicate a dataset version mismatch.
 
 **B2 upload fails with `NoSuchBucket`** — verify `BACKBLAZE_BUCKET` and
 `BACKBLAZE_ENDPOINT` in `.env` match your actual bucket region.
+
+---
+
+## CLI reference
+
+All commands are run from the repo root with the venv activated.
+
+---
+
+### `python -m src.data.download` — Download RDD2022 country ZIPs
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.download
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.download
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--dest` | `path` | `RDD_DATA_ROOT` from `.env` | Root directory where ZIPs and country folders are saved | Override when downloading to a non-default location |
+| `--countries` | one or more strings | all 7 countries | Restrict which countries to download | Re-download one country, or test the pipeline with Japan only |
+
+Available country names: `Japan`, `India`, `Czech`, `Norway`, `United_States`, `China_MotorBike`, `China_Drone`.
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.download --dest D:\datasets\rdd2022 --countries Japan India Czech
+```
+```bash
+# macOS / Linux
+python -m src.data.download --dest /data/rdd2022 --countries Japan India Czech
+```
+
+---
+
+### `python -m src.data.validate` — Validate PascalVOC XML annotations
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.validate
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.validate
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory to validate | Override when the dataset lives outside `RDD_DATA_ROOT` |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.validate --data-root D:\datasets\rdd2022
+```
+```bash
+# macOS / Linux
+python -m src.data.validate --data-root /data/rdd2022
+```
+
+---
+
+### `python -m src.data.convert` — Convert XML annotations to YOLO `.txt`
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.convert
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.convert
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory | Override when the dataset lives outside `RDD_DATA_ROOT` |
+| `--force` | flag | off | Overwrite existing `.txt` label files | Re-run conversion after fixing annotation issues without deleting label files manually |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.convert --data-root D:\datasets\rdd2022 --force
+```
+```bash
+# macOS / Linux
+python -m src.data.convert --data-root /data/rdd2022 --force
+```
+
+---
+
+### `python -m src.data.analyse_distribution` — Count class instances per country
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.analyse_distribution
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.analyse_distribution
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory | Override when the dataset lives outside `RDD_DATA_ROOT` |
+| `--split` | `train` \| `test` | `train` | Which split's label files to analyse | Pass `test` if you want counts for the test split (no labels, so always 0) |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.analyse_distribution --data-root D:\datasets\rdd2022 --split train
+```
+```bash
+# macOS / Linux
+python -m src.data.analyse_distribution --data-root /data/rdd2022 --split train
+```
+
+---
+
+### `python -m src.data.split` — Assign train / val / test splits
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.split
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.split
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory | Override when the dataset lives outside `RDD_DATA_ROOT` |
+| `--sample-ratio` | `float` (0.0–1.0) | `SAMPLE_RATIO` from `.env` (default 1.0) | Fraction of training images to include in `splits.json` | Keep at 1.0 here; use `train.py --sample-ratio` for per-run subsampling instead |
+
+#### Full example
+
+```powershell
+# Windows — always run with sample-ratio 1.0 (recommended)
+python -m src.data.split --data-root D:\datasets\rdd2022 --sample-ratio 1.0
+```
+```bash
+# macOS / Linux
+python -m src.data.split --data-root /data/rdd2022 --sample-ratio 1.0
+```
+
+---
+
+### `python -m src.data.ingest` — Write image metadata to MongoDB
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.ingest
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.ingest
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory | Override when the dataset lives outside `RDD_DATA_ROOT` |
+| `--batch-size` | `int` | `500` | Documents per bulk-write batch | Lower (e.g. `200`) if Atlas free tier throttles writes; raise if ingest is slow on a fast connection |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.ingest --data-root D:\datasets\rdd2022 --batch-size 500
+```
+```bash
+# macOS / Linux
+python -m src.data.ingest --data-root /data/rdd2022 --batch-size 500
+```
+
+---
+
+### `python -m src.data.upload_to_cloud` — Upload processed data to Backblaze B2
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.data.upload_to_cloud
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.data.upload_to_cloud
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--data-root` | `path` | `RDD_DATA_ROOT` from `.env` | Dataset root directory | Override when the dataset lives outside `RDD_DATA_ROOT` |
+| `--include-images` | flag | off | Also upload JPEG image files (large) | Only needed if teammates cannot independently access RDD2022 from Sekilab S3 |
+| `--workers` | `int` | `8` | Parallel upload threads | Lower (e.g. `4`) on slow connections; raise (e.g. `16`) on fast cluster links |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.data.upload_to_cloud --data-root D:\datasets\rdd2022 --include-images --workers 8
+```
+```bash
+# macOS / Linux
+python -m src.data.upload_to_cloud --data-root /data/rdd2022 --include-images --workers 8
+```

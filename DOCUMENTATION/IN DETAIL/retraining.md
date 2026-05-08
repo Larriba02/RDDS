@@ -39,19 +39,78 @@ python -m src.training.retrain \
     --patience 1
 ```
 
-### Flags
+---
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--new-images` | (required) | Directory containing new images and YOLO labels. |
-| `--epochs` | 20 | Maximum fine-tuning epochs. |
-| `--batch` | 8 | Batch size. |
-| `--patience` | 10 | Early-stopping patience on mAP50. |
-| `--imgsz` | 640 | Input image size in pixels. |
-| `--model` | (MongoDB lookup) | Local `.pt` path override — bypasses production checkpoint lookup. |
-| `--skip-upload` | False | Skip Backblaze B2 upload (for local testing). |
-| `--skip-promote` | False | Skip evaluation and promotion (for local testing). |
-| `--skip-ingest` | False | Skip the MongoDB ingest step (when metadata already exists). |
+## CLI reference
+
+### `python -m src.training.retrain` — Fine-tune production model on new images
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.training.retrain --new-images path\to\new_images\ --epochs 20 --batch 8 --patience 10
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.training.retrain --new-images path/to/new_images/ --epochs 20 --batch 8 --patience 10
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--new-images` | `path` | (required) | Directory containing new images and YOLO `.txt` labels. Accepts flat or RDD2022-style country/split/images/ hierarchy. | Always required — this is the new data batch to fine-tune on |
+| `--epochs` | `int` | `20` | Maximum fine-tuning epochs | Increase for larger new-image batches; keep low (5–10) for tiny patches |
+| `--batch` | `int` | `8` | Batch size | Match to GPU VRAM; `8` for 6 GB, `16` for 8 GB |
+| `--patience` | `int` | `10` | Early-stopping patience on mAP50 | Lower when fast convergence is expected; raise if training oscillates |
+| `--imgsz` | `int` | `640` | Input image size in pixels | Keep at `640` unless images are a different native resolution |
+| `--mix-ratio` | `float` (0.0–1.0) | `0.30` | Fraction of the original training pool to replay alongside new images (mixed training). Set `0.0` to train on new images only | Increase toward `1.0` when the new batch is small (< 100 images) to prevent catastrophic forgetting; decrease when compute is scarce or new batch is large |
+| `--lr0` | `float` | Ultralytics default (`0.01`) | Initial learning rate | Lower to `0.001` for conservative surgical updates on small new-image batches; leave unset for larger datasets |
+| `--lrf` | `float` | Ultralytics default (`0.01`) | Final LR as a fraction of `lr0` | Increase to `0.1` for a more gradual decay; leave unset to mirror `lr0` default |
+| `--cos-lr` | flag | off (linear decay) | Use cosine LR decay instead of linear | Enable when the new dataset is large enough to benefit from a full warmup-decay cycle |
+| `--optimizer` | `SGD` \| `Adam` \| `AdamW` \| `auto` | Ultralytics default (`auto`) | Optimizer | Use `AdamW` with low `lr0` for small-batch fine-tuning; keep `auto` otherwise |
+| `--freeze` | `int` | `None` (train all layers) | Number of backbone layers to freeze during fine-tuning | Use `10` to freeze backbone and train neck+head only — recommended when new batch is < 50 images to avoid overwriting general features |
+| `--model` | `path` | MongoDB production lookup | Local `.pt` checkpoint path — bypasses the MongoDB production-model lookup | Use when you want to fine-tune a specific local checkpoint rather than the current production model |
+| `--skip-upload` | flag | off | Skip Backblaze B2 checkpoint upload | Use for local testing without real B2 credentials |
+| `--skip-promote` | flag | off | Skip evaluation and promotion after fine-tuning | Use for local testing where promotion should not happen |
+| `--skip-ingest` | flag | off | Skip the MongoDB ingest step for new images | Use when the new images were already ingested in a previous run |
+
+#### Full example
+
+```powershell
+# Windows — conservative fine-tune: freeze backbone, low LR, cosine decay
+python -m src.training.retrain `
+    --new-images path\to\new_images\ `
+    --epochs 20 `
+    --batch 8 `
+    --patience 10 `
+    --imgsz 640 `
+    --mix-ratio 0.30 `
+    --lr0 0.001 `
+    --lrf 0.01 `
+    --cos-lr `
+    --optimizer AdamW `
+    --freeze 10 `
+    --model runs\train\run_20260504_202658_yolo11s\weights\best.pt
+```
+```bash
+# macOS / Linux — conservative fine-tune: freeze backbone, low LR, cosine decay
+python -m src.training.retrain \
+    --new-images path/to/new_images/ \
+    --epochs 20 \
+    --batch 8 \
+    --patience 10 \
+    --imgsz 640 \
+    --mix-ratio 0.30 \
+    --lr0 0.001 \
+    --lrf 0.01 \
+    --cos-lr \
+    --optimizer AdamW \
+    --freeze 10 \
+    --model runs/train/run_20260504_202658_yolo11s/weights/best.pt
+```
 
 ---
 

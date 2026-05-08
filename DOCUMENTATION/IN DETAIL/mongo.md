@@ -266,3 +266,74 @@ python -m src.db.test_connection
 ```
 and both commands print `OK`. At that point Step 1 is complete and Step 2
 (data ingestion) can begin.
+
+---
+
+## 9. CLI reference
+
+### `python -m src.db.setup_atlas` — Create collections and indexes
+
+No configurable flags — run as-is. The script is idempotent: running it
+twice on the same cluster leaves indexes unchanged.
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.db.setup_atlas
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.db.setup_atlas
+```
+
+#### Flags
+
+No configurable flags. `MONGO_URI` must be set in `.env`.
+
+#### Full example
+
+```powershell
+# Windows — no flags needed
+python -m src.db.setup_atlas
+```
+```bash
+# macOS / Linux — no flags needed
+python -m src.db.setup_atlas
+```
+
+---
+
+### `python -m src.db.test_connection` — Smoke-test the Atlas connection
+
+No configurable flags — run as-is. Inserts, reads back, and deletes one
+sentinel document per collection. Prints `OK` per collection and exits 0
+on success, exits 1 on failure.
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.db.test_connection
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.db.test_connection
+```
+
+#### Flags
+
+No configurable flags. `MONGO_URI` must be set in `.env`.
+
+#### Full example
+
+```powershell
+# Windows — no flags needed
+python -m src.db.test_connection
+```
+```bash
+# macOS / Linux — no flags needed
+python -m src.db.test_connection
+```
