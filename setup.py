@@ -109,8 +109,9 @@ def configure_ultralytics():
 
     project_root = Path(__file__).parent
     settings.update({
-        "weights_dir": str(project_root / "checkpoints"),
-        "runs_dir":    str(project_root / "runs"),
+        "datasets_dir": str(project_root / "datasets"),
+        "weights_dir":  str(project_root / "checkpoints"),
+        "runs_dir":     str(project_root / "runs"),
         "sync":        False,
         "clearml":     False,
         "comet":       False,
@@ -144,6 +145,24 @@ def verify():
         sys.exit(1)
 
 
+def run_smoke_test():
+    print("\n--- Optional smoke test ---")
+    print("  Runs Step 1 (MongoDB) + Step 2 (data pipeline) to verify the setup.")
+    print("  Requires MONGO_URI to be set in .env.\n")
+    answer = input("  Run smoke test now? [y/N] ").strip().lower()
+    if answer != "y":
+        print("  Skipped. Run manually: python tests/smoke_all.py --steps 1 2")
+        return
+    print()
+    result = subprocess.run(
+        [sys.executable, "tests/smoke_all.py", "--steps", "1", "2"],
+    )
+    if result.returncode != 0:
+        print("\nSmoke test reported failures — check output above.")
+    else:
+        print("\nSmoke test passed.")
+
+
 def main():
     print("=" * 50)
     print("  RDDS — Project Setup")
@@ -156,6 +175,7 @@ def main():
     configure_env()
     configure_ultralytics()
     verify()
+    run_smoke_test()
 
     print("\n" + "=" * 50)
     print("  Setup complete. You are ready to work.")
