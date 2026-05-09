@@ -37,6 +37,8 @@ load_dotenv()
 
 app = FastAPI(title="RDDS Web Demo", version="1.0")
 
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB hard cap for image uploads
+
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -94,7 +96,9 @@ async def predict_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
 
-    contents = await file.read()
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large (max 20 MB).")
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:

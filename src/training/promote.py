@@ -56,7 +56,11 @@ def _get_production_experiment() -> dict[str, Any] | None:
     return db["experiments"].find_one({"is_production": True})
 
 
-def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
+def maybe_promote(
+    run_id: str,
+    f1_new: float,
+    already_evaluated: bool = False,
+) -> PromoteOutcome:
     """Decide whether to promote the new run and apply the change atomically.
 
     The function:
@@ -72,6 +76,9 @@ def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
     Args:
         run_id: ``run_id`` field of the candidate experiment document.
         f1_new: F1 score (overall, IoU=0.5) of the candidate model.
+        already_evaluated: When ``True``, skip the post-promotion auto-eval
+            (caller has already run evaluate.py and written results to MongoDB).
+            Pass ``True`` from retrain.py to avoid running evaluation twice.
 
     Returns:
         Outcome string: ``"promoted"``, ``"completed"``, or ``"regression"``.
@@ -139,7 +146,8 @@ def maybe_promote(run_id: str, f1_new: float) -> PromoteOutcome:
             old_run_id=production["run_id"] if production else None,
             timestamp=now,
         )
-        _auto_evaluate(run_id)
+        if not already_evaluated:
+            _auto_evaluate(run_id)
     else:
         # Just mark the run as completed (or regression — same field value).
         experiments.update_one(

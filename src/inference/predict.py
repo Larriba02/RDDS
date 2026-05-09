@@ -146,7 +146,10 @@ def _resolve_checkpoint(exp: dict[str, Any]) -> Path:
         dest = dl_dir / "best.pt"
         if not dest.exists():
             print(f"  Downloading checkpoint from B2: {b2_url}")
-            urllib.request.urlretrieve(b2_url, dest)
+            with urllib.request.urlopen(b2_url, timeout=300) as resp:
+                with open(dest, "wb") as fh:
+                    while chunk := resp.read(1 << 20):
+                        fh.write(chunk)
         else:
             print(f"  Using cached download: {dest}")
         return dest

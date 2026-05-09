@@ -242,7 +242,10 @@ def _resolve_production_checkpoint(model_override: str | None) -> tuple[Path, st
         dest = dl_dir / "best.pt"
         if not dest.exists():
             print(f"  Downloading checkpoint from B2: {b2_url}")
-            urllib.request.urlretrieve(b2_url, dest)
+            with urllib.request.urlopen(b2_url, timeout=300) as resp:
+                with open(dest, "wb") as fh:
+                    while chunk := resp.read(1 << 20):
+                        fh.write(chunk)
         else:
             print(f"  Using cached download: {dest}")
         return dest, model_name
@@ -890,7 +893,7 @@ def retrain(
 
                 print(f"\n  CRDDC2022 F1 (val): {f1_after:.4f}")
                 print("  Running promotion check ...")
-                outcome = maybe_promote(run_id=run_id, f1_new=f1_after)
+                outcome = maybe_promote(run_id=run_id, f1_new=f1_after, already_evaluated=True)
                 promoted = outcome == "promoted"
                 print(f"  Promotion outcome: {outcome}")
             else:
