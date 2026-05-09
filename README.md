@@ -56,6 +56,7 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    - Ask for your credentials and create your `.env` file (UTF-8)
    - Configure Ultralytics for the project
    - Verify the installation and report whether CUDA is available
+   - Offer to run a quick smoke test (Steps 1–2) to verify MongoDB and the data pipeline end-to-end
 
 4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
 

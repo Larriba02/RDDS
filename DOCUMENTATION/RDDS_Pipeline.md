@@ -447,18 +447,20 @@ python -m src.training.retrain \
     --patience 10
 ```
 
-The `retrain()` function executes a 10-step pipeline:
+The `retrain()` function pipeline (see `src/training/retrain.py` for the full step-by-step breakdown):
 
 1. **Pre-flight** — raises `EnvironmentError` if `RDD_DATA_ROOT` is not set.
 2. **Ingest** — writes new image metadata to MongoDB `images_metadata` (idempotent; skips existing `image_id`s). Calls `src.data.ingest.ingest` directly.
 3. **Collect images** — walks `--new-images` recursively; supports flat directories and RDD2022-style `country/split/images/` hierarchy.
-4. **Write data.yaml** — generates `logs/retrain_images_{run_id}.txt` and `logs/retrain_data_{run_id}.yaml`. Inserts MongoDB `experiments` doc with `status="running"` + SIGTERM handler.
-5. **Fine-tune** — `YOLO(production_checkpoint).train(seed=42, ...)`. run_id format: `run_YYYYMMDD_HHMMSS_{model}_retrain`.
-6. **Extract metrics** — reads `results.csv`; training-time metrics only (unreliable on new-image-only val set).
-7. **Update MongoDB** — `status="completed"` with training-time metrics, before any export/upload.
-8. **Export ONNX** — subprocess call to keep crashes isolated from the main process.
-9. **Upload B2** — calls `src.training.upload_checkpoint.upload_checkpoints`.
-10. **Evaluate + promote** — calls `src.evaluation.evaluate.evaluate(run_id=..., split="val")` on the fixed 1,000-per-country validation set, then `src.training.promote.maybe_promote` with the returned CRDDC2022 F1.
+4. **Build mixed training list** — new images + stratified sample of the original training pool (`--mix-ratio`, default 0.30). Val split uses the fixed val set from `logs/splits.json`.
+5. **Write data.yaml** — generates `logs/retrain_images_{run_id}.txt`, `logs/retrain_mixed_{run_id}.txt`, `logs/retrain_val_{run_id}.txt`, and `logs/retrain_data_{run_id}.yaml`.
+6. **Insert MongoDB document** — `status="running"` + SIGTERM handler installed.
+7. **Fine-tune** — `YOLO(production_checkpoint).train(seed=42, ...)`. run_id format: `run_YYYYMMDD_HHMMSS_{model}_retrain`.
+8. **Extract metrics** — reads `results.csv`; training-time metrics only.
+9. **Update MongoDB** — `status="completed"` with training-time metrics, before any export/upload.
+10. **Export ONNX** — subprocess call to keep crashes isolated from the main process.
+11. **Upload B2** — calls `src.training.upload_checkpoint.upload_checkpoints`.
+12. **Evaluate + promote** — calls `src.evaluation.evaluate.evaluate(run_id=..., split="val")` on the fixed 1,000-per-country validation set, then `src.training.promote.maybe_promote` with the returned CRDDC2022 F1.
 
 Checkpoint resolution order: `--model` override → `runs/train/<run_id>/weights/best.pt` → fuzzy match → B2 download from MongoDB.
 

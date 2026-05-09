@@ -29,7 +29,7 @@ python -m src.training.retrain \
 # With local model override (bypass B2 download)
 python -m src.training.retrain \
     --new-images path/to/new_images/ \
-    --model runs/detect/myrun/weights/best.pt
+    --model runs/train/myrun/weights/best.pt
 
 # Smoke test (tiny dataset, 1 epoch — verifies the pipeline end-to-end)
 python -m src.training.retrain \
@@ -118,7 +118,7 @@ python -m src.training.retrain \
 
 ## Step-by-step pipeline
 
-The `retrain()` function executes exactly 10 steps:
+The `retrain()` function executes the following steps (authoritative numbering in `src/training/retrain.py`):
 
 ### Step 1 — Pre-flight and checkpoint resolution
 

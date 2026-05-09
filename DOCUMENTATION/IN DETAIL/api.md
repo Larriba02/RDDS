@@ -195,6 +195,7 @@ missing, `POST /predict` will return a 422 error on any upload.
 | `fastapi` | HTTP framework — route definitions, request parsing, response models. |
 | `uvicorn[standard]` | ASGI server — runs the FastAPI application. |
 | `python-multipart` | Required by FastAPI for parsing `multipart/form-data` file uploads. |
+| `httpx` | HTTP client used by the Step 8 smoke test (`tests/smoke_step8.py`) to exercise the API end-to-end without a browser. |
 | `ultralytics` | YOLO model loading and inference — already in `requirements.txt`. |
 | `opencv-python` | Drawing bounding boxes on the annotated image — already in `requirements.txt`. |
 | `src.db.connection.get_db()` | MongoDB handle — shared with all other modules. |

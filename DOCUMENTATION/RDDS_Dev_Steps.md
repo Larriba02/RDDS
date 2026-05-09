@@ -57,12 +57,12 @@ plotly>=5.22.0          # dashboard charts
 ```
 
 > **Updated after Step 8:** `requirements.txt` now also includes
-> `fastapi>=0.111.0`, `uvicorn[standard]>=0.29.0`, and
-> `python-multipart>=0.0.9` for the optional web demo (`src/api/`).
+> `fastapi>=0.111.0`, `uvicorn[standard]>=0.29.0`,
+> `python-multipart>=0.0.9` for the optional web demo (`src/api/`), and
+> `httpx>=0.27.0` for the smoke test HTTP client (`tests/smoke_step8.py`).
 
 ### Done criterion — verified ✅
-Any team member can clone the repo, run python setup.py, 
-and the environment is fully configured and verified.
+Any team member can clone the repo, run python setup.py, and the environment is fully configured and verified. At the end of setup, an optional smoke test (Steps 1–2) is offered.
 
 ---
 
@@ -502,7 +502,7 @@ python -m src.inference.predict --source path/to/image.jpg --dry-run
 
 ### Implementation details
 
-``retrain()`` orchestrates an 11-step pipeline:
+``retrain()`` orchestrates the following pipeline (full detail in ``src/training/retrain.py``):
 1. Pre-flight: raises ``EnvironmentError`` if ``RDD_DATA_ROOT`` is not set.
 2. Ingest: calls ``src.data.ingest.ingest`` (idempotent — skips existing image_ids).
 3. Collect new image paths (supports flat dirs and RDD2022-style hierarchy).
@@ -653,6 +653,12 @@ rdds/
 │   ├── train_cluster.sh          # single-job SLURM wrapper
 │   └── submit_sweep.sh           # sequential multi-config sweep via SLURM dependency chain
 ├── tests/
+│   ├── smoke_step2.py       # Step 2 data pipeline smoke test
+│   ├── smoke_step5.py       # Step 5 evaluation smoke test
+│   ├── smoke_step6.py       # Step 6 inference smoke test
+│   ├── smoke_step7.py       # Step 7 retraining smoke test
+│   ├── smoke_step8.py       # Step 8 web demo smoke test
+│   ├── smoke_all.py         # Orchestrator: run selected steps (--steps 1 2 …)
 │   └── data/
 │       └── tiny_rdd2022/    # 5 imgs × 2 countries × 4 classes (Step 2 + Step 4 smoke test)
 ├── logs/

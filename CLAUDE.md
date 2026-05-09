@@ -97,14 +97,24 @@ RDDS/
 │   ├── RDDS_Dev_Steps.md                  # the development plan
 │   ├── RDDS_Pipeline.md                   # full pipeline reference
 │   └── IN DETAIL/                         # one doc per pipeline stage
+│       ├── setup.md
 │       ├── mongo.md
+│       ├── data.md
+│       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
+│       ├── inference.md
+│       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md               # AI / Claude usage policy
 ├── src/
 │   ├── db/                                # connection.py, setup_atlas.py, test_connection.py
 │   ├── data/                              # download, validate, convert, split, ingest
 │   ├── training/                          # train, upload_checkpoint, promote, retrain
 │   ├── evaluation/                        # evaluate, qualitative
-│   └── inference/                         # predict, extract_frames
+│   ├── inference/                         # predict, extract_frames
+│   ├── api/                               # FastAPI web demo (Step 8 — optional)
+│   └── dashboard.py                       # Streamlit experiment dashboard
 ├── tests/
 │   └── data/tiny_rdd2022/                 # synthetic 5×2×4 mini-dataset
 ├── scripts/

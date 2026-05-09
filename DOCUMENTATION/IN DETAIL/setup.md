@@ -137,6 +137,7 @@ creates its own.
 2. Asks for credentials and creates the `.env` file
 3. Configures Ultralytics settings for the project
 4. Verifies that the three core libraries import correctly
+5. Optionally runs `tests/smoke_all.py --steps 1 2` to confirm MongoDB connectivity and the data pipeline end-to-end (prompts for confirmation; safe to skip)
 
 ### Run it
 ```bash
@@ -250,8 +251,11 @@ rdds/
 │       ├── mongo.md
 │       ├── data.md
 │       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
 │       ├── inference.md
 │       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
