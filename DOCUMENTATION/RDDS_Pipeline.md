@@ -18,11 +18,10 @@ deliverable**:
   only.** It is not exercised on real new data before submission. The
   design philosophy is unchanged — manually triggered fine-tuning on
   newly ingested imagery is still the intended workflow. It is out of
-  scope **for execution**, for three independent reasons: (a) we have no
-  fresh batch of road images outside RDD2022 to retrain on, (b) the team
-  does not have the remaining bandwidth, and (c) a real retrain on top
-  of the production weights is too costly on M's RTX 4050 and J's RTX
-  4060 to fit alongside the rest of the work.
+  scope **for execution**, for two reasons: (a) the team does not have
+  the remaining bandwidth, and (b) a real retrain on top of the
+  production weights is too costly on the personal GPUs available (RTX
+  4050 / RTX 4060) to fit alongside the rest of the work.
 
 The **final reported models** are both trained locally:
 
@@ -501,22 +500,17 @@ executed on real new data** before submission. The code and the design
 described below are preserved as a documented design artifact — the
 project's retraining philosophy is unchanged.
 
-Three independent constraints stopped us from running it on real data
-before the deadline:
+Two constraints stopped us from running it on real data before the
+deadline:
 
-1. **No new data.** We have no fresh batch of road images outside RDD2022.
-   A retrain with no genuinely new data would not exercise the workflow
-   in any meaningful way — it would just be another fine-tune on the same
-   dataset.
-2. **Team bandwidth.** With M finishing the baseline + web demo and J
-   finishing the YOLO11m main model, no one has the remaining hours to
-   drive a real retrain through to a promotion-or-regression decision and
-   write it up.
-3. **Compute cost on personal hardware.** A real retrain on top of the
+1. **Team bandwidth.** No one has the remaining hours to drive a real
+   retrain through to a promotion-or-regression decision and write it up
+   alongside the rest of the deliverable.
+2. **Compute cost on personal hardware.** A real retrain on top of the
    production weights (full mixed training, ~20 epochs, val + B2 upload
-   + evaluation afterwards) is expensive on M's RTX 4050 and J's RTX 4060
-   and would crowd out the runs that are still required for the final
-   report.
+   + evaluation afterwards) is expensive on the personal GPUs available
+   (RTX 4050 / RTX 4060) and would crowd out the runs still required for
+   the final report.
 
 The design intent — manually triggered fine-tuning on freshly ingested
 imagery, with atomic `is_production` promotion gated by F1 — remains the
