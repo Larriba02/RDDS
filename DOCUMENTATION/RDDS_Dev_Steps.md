@@ -1,23 +1,44 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.1 — May 2026*
+*Version 2.2 — May 2026*
 
 Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
+
+---
+
+## Project status note (final stretch — 2026-05-23)
+
+Two items that were planned in earlier versions have been **dropped from the
+final deliverable**. The code stays in the repo as a design artifact but is
+**not executed** before submission:
+
+- **Step 4 — Phase 1 / A100 cluster training.** No SLURM runs will be
+  reported. `scripts/train_cluster.sh` and `scripts/submit_sweep.sh` remain
+  in the repository as documented-but-not-executed assets.
+- **Step 7 — Retraining pipeline.** `src/training/retrain.py` was
+  implemented and smoke-tested on the synthetic mini-dataset only. No
+  end-to-end retraining run on real new data will be reported.
+
+The **final reported models** are both trained **locally**:
+
+- **YOLO11s baseline** — M, RTX 4050 laptop, Phase 0 at SAMPLE_RATIO=1.0
+  (`run_20260504_202658_yolo11s`).
+- **YOLO11m main model** — J, RTX 4060. This replaces what was previously
+  the A100 / cluster YOLO11m run.
 
 ---
 
 ## Context Summary
 
 - **Project:** Road damage detection system using deep learning on RDD2022 dataset.
-- **Team:** M (lead), L (MongoDB), J (Training).
-- **Hardware:** RTX 4050 laptop (6GB, Phase 0), RTX 4060 teammate (8GB), A100 cluster (40GB, Phase 1).
-- **Cluster:** SLURM, `sbatch`, Python scripts only, internet access, 50GB local storage per node.
+- **Team:** M (lead — pipeline, data, baseline, evaluation, web demo), L (MongoDB only — schema, indexes, Atlas), J (training of YOLO11m main model on RTX 4060).
+- **Hardware:** RTX 4050 laptop (6GB, M — Phase 0 + baseline + everything else), RTX 4060 (J — YOLO11m main model). The A100 cluster was planned for Phase 1 but is not used in the final deliverable.
 - **Database:** MongoDB Atlas (shared, free tier). URI in `.env`, never in Git.
 - **Weights storage:** Backblaze B2. URLs stored in MongoDB after each run.
 - **Dataset:** RDD2022 (CC BY-SA 4.0). 6 countries, ~47k images, PascalVOC XML annotations.
-- **Architecture:** YOLO11s (baseline) + YOLO11m (main). COCO pretrained weights, fine-tuned.
+- **Architecture:** YOLO11s (baseline, on RTX 4050) + YOLO11m (main, on RTX 4060). COCO pretrained weights, fine-tuned.
 - **Timeline:** ~2 months to final results.
-- **Full pipeline reference:** RDDS_Pipeline.md (v2.4)
+- **Full pipeline reference:** RDDS_Pipeline.md (v2.5)
 - **Claude standing context:** CLAUDE.md (loaded automatically by Claude Code; contains rules, conventions, and resource pointers)
 
 ---
@@ -219,10 +240,10 @@ python -m src.data.upload_to_cloud
 
 Phase 0 is **not just a one-off baseline run**. It is the iteration sandbox where M:
 - Trains YOLO11s with growing dataset fractions (`SAMPLE_RATIO=0.10 → 0.25 → 0.50 → 1.00`) to map the F1/mAP-vs-data curve. Each step is either a fresh run from COCO weights or a fine-tune from the previous checkpoint, depending on whether continuing produced gains in the previous fraction.
-- Tunes hyperparameters that are unsafe to discover on the A100 (batch size for OOM, augmentation knobs, LR schedule).
-- Exercises the full retraining workflow (Step 7) end-to-end before it has to run unattended in the cluster.
+- Tunes hyperparameters where consumer-GPU memory pressure forces decisions (batch size for OOM, augmentation knobs, LR schedule).
+- Exercises the full retraining workflow (Step 7) end-to-end on the synthetic mini-dataset (full real-data retraining is out of scope for the final deliverable — see project status note).
 
-The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which Phase 1 (YOLO11m) is measured.
+The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which the **YOLO11m main model on J's RTX 4060** is measured.
 
 ### Configuration (first Phase 0 run — subsequent runs increase --sample-ratio)
 ```
@@ -275,8 +296,18 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 ## 🔄 STEP 3.5 — Hyperparameter Search (J, RTX 4060)
 
 **Owner:** J  
-**Status:** In progress  
-**Goal:** Find a hyperparameter configuration that beats the Phase 0 baseline (F1=0.598) before committing A100 time to Phase 1.
+**Status:** Superseded by YOLO11m local training on RTX 4060.  
+**Goal (original):** Find a YOLO11s hyperparameter configuration that beats the Phase 0 baseline (F1=0.598) before committing A100 time to Phase 1.
+
+**Update (2026-05-23):** Phase 1 / A100 is out of scope for the final deliverable
+(see project status note above), so the original justification for the YOLO11s
+hyperparameter funnel — *cheap screening before expensive cluster time* — no
+longer applies. J pivoted from screening YOLO11s configs to training the
+**YOLO11m main model directly on the RTX 4060**. The m-on-RTX-4060 result is
+now the project's main reported model and replaces the cluster YOLO11m run.
+
+The funnel protocol below is preserved for reference, since some early Round 1
+screening runs were executed before the pivot.
 
 ### Protocol — funnel screening
 
@@ -341,16 +372,24 @@ The Overview page shows the F1-vs-data curve updating in real time. The Run Deta
 - [ ] Round 1 complete — 4 configs at 0.10, best 2 identified.
 - [ ] Round 2 complete — 2 configs at 0.25, winner identified.
 - [ ] Round 3 complete — winner at 1.0, F1 reported back to M.
-- [ ] If F1 > 0.608: auto-promoted to production. If not: proceed to Phase 1 with baseline hyperparams.
+- [ ] If F1 > 0.608: auto-promoted to production. ~~If not: proceed to Phase 1 with baseline hyperparams.~~ (Phase 1 out of scope — see status note.)
 
 ---
 
-## ⏳ STEP 4 — Phase 1 Training (A100 Cluster)
+## ⏭️ STEP 4 — Phase 1 Training (A100 Cluster) — OUT OF SCOPE FOR FINAL DELIVERABLE
 
-**Owner:** M  
-**Goal:** Full-performance training on complete dataset. Final mAP numbers.
+> **Status banner:** Out of scope for the final deliverable — see project
+> status note at the top of this document. The SLURM scripts
+> (`scripts/train_cluster.sh`, `scripts/submit_sweep.sh`) and the
+> documentation below are kept as a design artifact: they describe how
+> Phase 1 *would* have been run on the A100. **They were not executed.**
+> The YOLO11m main model is instead trained locally by J on the RTX 4060
+> (see Step 3.5 update).
 
-### Configuration
+**Owner (original plan):** M  
+**Goal (original plan):** Full-performance training on complete dataset. Final mAP numbers.
+
+### Configuration (documented for reference — not executed)
 ```
 Models:       YOLO11s (confirmed baseline) + YOLO11m (main)
 Dataset:      All 6 countries, SAMPLE_RATIO=1.0
@@ -370,9 +409,16 @@ seed:         42
 - [ ] Run YOLO11m after YOLO11s completes successfully.
 - [ ] Promote best model via `promote.py`.
 
-### Done when
-- YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.
-- F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.
+### Done when (original — superseded)
+- ~~YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.~~
+- ~~F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.~~
+
+### Actual done criterion for the final deliverable
+
+Phase 1 is **not executed**. The equivalent "YOLO11m main model" deliverable is
+produced by J locally on the RTX 4060 (see Step 3.5 update). The MongoDB
+`experiments` document for the production YOLO11m run records `device:
+"RTX 4060"` rather than the A100 cluster.
 
 ---
 
@@ -489,11 +535,19 @@ python -m src.inference.predict --source path/to/image.jpg --dry-run
 
 ---
 
-## ✅ STEP 7 — Retraining Pipeline — DONE
+## ⏭️ STEP 7 — Retraining Pipeline — OUT OF SCOPE FOR FINAL DELIVERABLE
+
+> **Status banner:** Out of scope for the final deliverable — see project
+> status note at the top of this document. `src/training/retrain.py` was
+> implemented and smoke-tested on the synthetic mini-dataset
+> (`tests/data/tiny_rdd2022/`, 14 images, 1 epoch) but the workflow is
+> **not exercised end-to-end on real new data** before submission. The
+> code stays in the repo as a design artifact and full documentation is
+> preserved below.
 
 **Owner:** M  
-**Status:** Complete  
-**Goal:** `retrain()` function that fine-tunes from a checkpoint, evaluates, and promotes if better.
+**Status:** Designed, implemented, and smoke-tested only — no real retraining run reported.  
+**Goal (as designed):** `retrain()` function that fine-tunes from a checkpoint, evaluates, and promotes if better.
 
 ### Tasks
 - [x] `src/training/retrain.py` — validate, ingest, load checkpoint, fine-tune, evaluate, promote if better.
@@ -544,14 +598,18 @@ python -m src.training.retrain --new-images path/to/new_images/ --model runs/tra
 python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 --batch 2 --patience 1 --skip-upload --skip-promote
 ```
 
-### Done when — verified ✅
-- [x] `retrain()` runs end-to-end without errors (smoke test: 14 images, 1 epoch, `run_20260507_231144_yolo11s_retrain`).
-- [x] MongoDB experiments doc: initial ``status="running"`` → updated ``status="completed"`` with metrics.
-- [x] Both promoted and non-promoted outcomes correctly handled: ``maybe_promote`` updates doc to ``"promoted"``/``"completed"``/``"regression"`` + ``is_production`` flipped atomically.
-- [x] SIGTERM handler marks ``status="interrupted"`` before process exits.
-- [x] B2 upload and ONNX export both wired up (tested: ONNX exported in smoke run).
-- [x] Mixed training: new images + original train sample combined correctly (smoke test: 14 new + 1568 original = 1582 total, exit 0).
-- [x] Fine-tuning knobs (``--lr0``, ``--lrf``, ``--cos-lr``, ``--optimizer``, ``--freeze``) wired to ``YOLO.train()`` — not yet exercised in a full promoted run.
+### Done criteria for the final deliverable
+
+The retraining workflow is **out of scope** for the final report. The code
+exists, the smoke test passes, but the pipeline is not exercised on real
+new data. Specifically:
+
+- [x] `retrain()` runs end-to-end on the synthetic mini-dataset only (smoke test: 14 images, 1 epoch, `run_20260507_231144_yolo11s_retrain`).
+- [x] MongoDB writes during the smoke run behave as designed (`status="running"` → `status="completed"`); `maybe_promote` returned `"completed"` (no promotion, as expected on tiny data).
+- [x] B2 upload and ONNX export wired up and exercised by the smoke run.
+- [x] Mixed training logic combines new + original (smoke test: 14 new + 1568 original = 1582 total).
+- [ ] **Not executed:** a real retraining run on a fresh batch of road images, with a promoted/regressed outcome reported to MongoDB and a final F1 comparison against the baseline.
+- [ ] **Not executed:** end-to-end exercise of the fine-tuning knobs (`--lr0`, `--lrf`, `--cos-lr`, `--optimizer`, `--freeze`) in a real promoted run.
 
 ---
 

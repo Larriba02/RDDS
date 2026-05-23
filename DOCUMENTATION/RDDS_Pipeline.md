@@ -1,6 +1,31 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.4 — May 2026*
+*Version 2.5 — May 2026*
+
+---
+
+## Project status note (final stretch — 2026-05-23)
+
+The pipeline described in this document was designed for a two-phase training
+strategy (laptop sandbox + A100 cluster) and a manually triggered retraining
+workflow. Two of those components are **out of scope for the final
+deliverable**:
+
+- **Phase 1 / A100 cluster training is not executed.** `scripts/train_cluster.sh`
+  and `scripts/submit_sweep.sh` remain in the repository as a design
+  artifact. No SLURM run is reported.
+- **The retraining pipeline (`src/training/retrain.py`) is smoke-tested
+  only.** It is not exercised on real new data before submission.
+
+The **final reported models** are both trained locally:
+
+- **YOLO11s baseline** — M, RTX 4050 laptop (Phase 0 at SAMPLE_RATIO=1.0).
+- **YOLO11m main model** — J, RTX 4060. This replaces what was previously
+  planned as the A100 cluster YOLO11m run.
+
+Sections below that describe Phase 1, the A100 hardware profile, and
+autonomous retraining are kept for documentation completeness; flags note
+where they are documented-but-not-executed.
 
 ---
 
@@ -20,9 +45,11 @@ The system is a modular end-to-end pipeline that takes raw road images as input 
 │                             ┌────────────────────▼──────────────────┐  │
 │                             │          TRAINING                      │  │
 │                             │                                        │  │
-│                             │  Phase 0: Laptop (RTX 4050, subset)   │  │
-│                             │       ↓                                │  │
-│                             │  Phase 1: A100 (full dataset)         │  │
+│                             │  YOLO11s baseline: RTX 4050 (M)        │  │
+│                             │       +                                │  │
+│                             │  YOLO11m main:     RTX 4060 (J)        │  │
+│                             │  (Phase 1 / A100 documented but not    │  │
+│                             │   executed — see status note above)    │  │
 │                             └────────────────────┬──────────────────┘  │
 │                                                  │                      │
 │                        ┌─────────────────────────▼──────────┐          │
@@ -36,9 +63,11 @@ The system is a modular end-to-end pipeline that takes raw road images as input 
 │              └───────────────────────────────────┬──────────────────┘  │
 │                                                  │                      │
 │                         ┌────────────────────────▼───────────────────┐ │
-│                         │         RETRAINING PIPELINE                 │ │
+│                         │   RETRAINING PIPELINE (design artifact)     │ │
 │                         │   new data ──▶ fine-tune ──▶ evaluate       │ │
 │                         │            ──▶ promote if better            │ │
+│                         │   Smoke-tested only — not executed on real  │ │
+│                         │   new data in the final deliverable.        │ │
 │                         └────────────────────────┬───────────────────┘ │
 │                                                  │                      │
 │                    ┌─────────────────────────────▼──────────────────┐  │
@@ -102,13 +131,19 @@ A fixed baseline of **1,000 images per country** is always reserved for validati
 
 | Phase                      | SAMPLE_RATIO     | Purpose                                                        |
 | -------------------------- | ---------------- | -------------------------------------------------------------- |
-| Phase 0 — M (laptop)       | 0.10→0.25→0.50→1.0 | F1-vs-data curve, pipeline validation. Baseline: F1=0.598.  |
-| Step 3.5 — J (RTX 4060)    | 0.10→0.25→1.0    | Hyperparameter funnel: screen all configs cheap, full run only for the winner. |
-| Phase 1 — cluster (A100)   | 1.00             | Full training with best hyperparams on YOLO11s and YOLO11m.   |
+| Phase 0 — M (RTX 4050)     | 0.10→0.25→0.50→1.0 | F1-vs-data curve, pipeline validation. **YOLO11s baseline: F1=0.598.** |
+| Step 3.5 — J (RTX 4060)    | 0.10→0.25→1.0    | Originally a YOLO11s hyperparameter funnel; pivoted to direct **YOLO11m main model** training. |
+| ~~Phase 1 — cluster (A100)~~ | ~~1.00~~       | Out of scope for the final deliverable — see status note.       |
 
-### Hyperparameter funnel (Step 3.5)
+### Hyperparameter funnel (Step 3.5 — superseded)
 
-All candidate configurations are first screened at `--sample-ratio 0.10`. Only configs that match or beat the baseline F1 at that ratio advance to `0.25`. The single winner at `0.25` runs at `1.0`. This avoids spending 8–12 h on a full run for a config that would have been eliminated in 2 h.
+> **Status:** Documented for reference. The original justification for the
+> funnel was *cheap screening before expensive A100 cluster time*. Phase 1 /
+> A100 is now out of scope, so J pivoted from YOLO11s hyperparameter
+> screening to training the **YOLO11m main model directly on the RTX 4060**.
+> Some early Round 1 screening runs were executed before the pivot.
+
+All candidate configurations were to be first screened at `--sample-ratio 0.10`. Only configs that match or beat the baseline F1 at that ratio advance to `0.25`. The single winner at `0.25` runs at `1.0`. This avoids spending 8–12 h on a full run for a config that would have been eliminated in 2 h.
 
 ```
 Round 1  0.10   all configs    gate: F1 ≥ 0.411 (Phase 0 baseline at 0.10)
@@ -121,7 +156,7 @@ The **test split is always 100%** regardless of `SAMPLE_RATIO`. Partial test eva
 
 ### Centralised ingestion
 
-The full download, validation, format conversion, and upload to cloud storage is performed **once by one team member**. All other machines and the A100 pull the processed dataset from cloud storage. The raw RDD2022 ZIPs are never downloaded more than once.
+The full download, validation, format conversion, and upload to cloud storage is performed **once by one team member**. All other machines pull the processed dataset from cloud storage. The raw RDD2022 ZIPs are never downloaded more than once.
 
 ---
 
@@ -277,49 +312,70 @@ Mitigation:
 - **Per-class loss weights** (`cls_weight` parameter in Ultralytics): calibrated from the distribution analysis in Stage 1.
 - **MixUp augmentation** applied specifically to D40 instances during training.
 
-### Two-phase training strategy
+### Training strategy (final deliverable)
+
+The originally planned two-phase strategy (laptop sandbox + A100 cluster) was
+collapsed to **two local training tracks**, both on consumer GPUs:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  PHASE 0 — Laptop (RTX 4050, 6 GB VRAM)                          │
+│  PHASE 0 — YOLO11s baseline (M, RTX 4050, 6 GB VRAM)             │
 │                                                                  │
-│  Dataset:   All 6 countries, ~10% each (SAMPLE_RATIO=0.10)       │
-│  Model:     YOLO11s                                              │
+│  Dataset:   All 7 country folders, SAMPLE_RATIO sweep            │
+│             0.10 → 0.25 → 0.50 → 1.00                            │
+│  Model:     YOLO11s (COCO-pretrained, fine-tuned)                │
 │  Config:    batch=8, imgsz=640, epochs=50, amp=True (FP16)       │
-│             patience=15 (early stopping on metrics/mAP50)            │
-│  Goal:      Verify the full pipeline runs without errors.        │
-│             Explore hyperparameters across all countries.        │
-│             Confirm MongoDB writes, MLflow logging, evaluation.  │
-│             Produce a real (weak) baseline mAP number.           │
-│  Result:    mAP@0.5 = 0.601, F1 = 0.598 (YOLO11s, SAMPLE_RATIO=1.0,   │
-│             run_20260504_202658) — Phase 0 complete ✓                   │
+│             patience=15 (early stopping on metrics/mAP50)         │
+│  Goal:      Map the F1-vs-data curve. Validate the full pipeline │
+│             end-to-end (MongoDB writes, MLflow logging,           │
+│             Backblaze upload, evaluation, promotion).             │
+│  Result:    mAP@0.5 = 0.601, F1 = 0.598 (YOLO11s, SAMPLE_RATIO=1.0, │
+│             run_20260504_202658) — promoted to is_production ✓    │
 └──────────────────────────────────────────────────────────────────┘
-                            ↓
+                            +
 ┌──────────────────────────────────────────────────────────────────┐
-│  PHASE 1 — University Cluster (NVIDIA A100, 40 GB VRAM)          │
+│  YOLO11m main model (J, RTX 4060, 8 GB VRAM)                     │
 │                                                                  │
-│  Dataset:   All 6 countries, full train split (SAMPLE_RATIO=1.0) │
-│  Models:    YOLO11s (confirmed baseline) + YOLO11m (main)        │
-│  Config:    batch=32, imgsz=640, epochs=100, amp=True (FP16)     │
-│             patience=20 (early stopping on metrics/mAP50)            │
-│  Goal:      Full-performance training. Final evaluation on       │
-│             Norway held-out test set.                            │
-│  Expected:  mAP@0.5 ~0.82–0.88 (YOLO11m)                         │
+│  Dataset:   All 7 country folders, SAMPLE_RATIO=1.0              │
+│  Model:     YOLO11m (COCO-pretrained, fine-tuned)                │
+│  Config:    batch=16, imgsz=640, amp=True (FP16),                │
+│             same protocol as Phase 0 (seed=42, fixed val set,     │
+│             CRDDC2022 F1 reporting).                              │
+│  Goal:      Final reported main model. Replaces the originally    │
+│             planned A100 cluster YOLO11m run.                     │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│  PHASE 1 — A100 cluster (NOT EXECUTED)                           │
+│                                                                  │
+│  Documented in `scripts/train_cluster.sh` and                    │
+│  `scripts/submit_sweep.sh`. Out of scope for the final           │
+│  deliverable — see project status note at the top of this        │
+│  document.                                                       │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Why train on the laptop first?** The A100 is a shared university resource. Running a buggy pipeline on it wastes hours of cluster time that cannot be recovered. The laptop phase is not about getting good results — it is about confirming the code is correct before spending that resource. Every team project that skips this step regrets it.
+**Why was Phase 1 dropped?** Local compute on M's RTX 4050 and J's RTX 4060
+proved sufficient to produce both the YOLO11s baseline and the YOLO11m main
+model within the project timeline. The A100 cluster path was kept as a
+design artifact but spending the cluster credits was no longer required to
+hit the project objectives.
 
-**Why does FP16 (mixed precision) matter on the laptop?** The RTX 4050 laptop has 6 GB of VRAM. At FP32, YOLO11m with batch=8 at 640px does not fit. FP16 halves memory usage with negligible accuracy impact. It is enabled by default in Ultralytics (`amp=True`).
+**Why does FP16 (mixed precision) matter on consumer GPUs?** The RTX 4050
+laptop has 6 GB of VRAM and the RTX 4060 has 8 GB. At FP32, YOLO11m at 640px
+struggles for batch sizes above 4–8 on these cards. FP16 halves memory usage
+with negligible accuracy impact. It is enabled by default in Ultralytics
+(`amp=True`).
 
 ### Early stopping
 
 YOLO11 runs on RDD2022 typically plateau between epoch 40 and 60. Training for fixed epochs wastes compute and increases the risk of overfitting the validation set. Ultralytics supports early stopping natively via the `patience` argument, which halts training if the monitored metric does not improve for N consecutive epochs.
 
-| Phase | patience | Monitor | Rationale |
+| Track | patience | Monitor | Rationale |
 |-------|----------|---------|-----------|
-| Phase 0 (laptop) | 15 | `metrics/mAP50` | Short runs, noisy val, stop early if stuck. |
-| Phase 1 (A100)   | 20 | `metrics/mAP50` | Longer runs, tolerate more plateaus before stopping. |
+| YOLO11s baseline (M, RTX 4050) | 15 | `metrics/mAP50` | Short runs, noisy val, stop early if stuck. |
+| YOLO11m main (J, RTX 4060) | 20 | `metrics/mAP50` | Longer runs, tolerate more plateaus before stopping. |
+| ~~Phase 1 (A100)~~ | ~~20~~ | ~~`metrics/mAP50`~~ | ~~Not executed in the final deliverable.~~ |
 
 The monitored metric is Ultralytics' built-in `metrics/mAP50` on the fixed 1,000-per-country validation set. Early stopping does not replace epoch budgets — it bounds them. The `last.pt` from an early-stopped run is still uploaded to Backblaze alongside `best.pt`.
 
@@ -431,7 +487,11 @@ showing label, bounding box, and confidence score.
 
 ## Stage 6 — Retraining Pipeline
 
-**Status:** Complete — `src/training/retrain.py` implemented and smoke-tested.
+**Status:** Out of scope for the final deliverable.
+`src/training/retrain.py` is implemented and smoke-tested on the synthetic
+mini-dataset (`tests/data/tiny_rdd2022/`, 14 images, 1 epoch). It is **not
+executed on real new data** before submission. The code and the design
+described below are preserved as a documented design artifact.
 
 ### Design philosophy
 
@@ -466,11 +526,11 @@ Checkpoint resolution order: `--model` override → `runs/train/<run_id>/weights
 
 ### Promotion rule
 
-| Condition | Outcome |
-|-----------|---------|
-| `F1_new > F1_current + 0.01` | Promoted — `is_production` flipped atomically via MongoDB transaction. Old model marked `"superseded"`. |
-| `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` | Noise band — logged as `"completed"`, not promoted. |
-| `F1_new < F1_current − 0.005` | Regression — logged as `"completed"`. Investigate before next retrain. |
+| Condition                                          | Outcome                                                                                                 |     |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --- |
+| `F1_new > F1_current + 0.01`                       | Promoted — `is_production` flipped atomically via MongoDB transaction. Old model marked `"superseded"`. |     |
+| `F1_new ∈ [F1_current − 0.005, F1_current + 0.01]` | Noise band — logged as `"completed"`, not promoted.                                                     |     |
+| `F1_new < F1_current − 0.005`                      | Regression — logged as `"completed"`. Investigate before next retrain.                                  |     |
 
 ### Why fine-tune from checkpoint instead of retraining from scratch?
 
@@ -489,8 +549,9 @@ For full documentation of the retraining pipeline see `DOCUMENTATION/IN DETAIL/r
 | Dataset             | RDD2022                                  | Most current benchmark dataset. 6 countries, 47k+ images, CC BY-SA 4.0.                                          |
 | Test set            | Official RDD2022 test split, always 100% | Comparable with published benchmarks. Never touched during training.                                             |
 | Database            | MongoDB                                  | Heterogeneous document structure fits naturally. Images stay on filesystem.                                      |
-| Laptop phase        | Baseline + validation                    | Pipeline validation + hyperparameter exploration across full geographic distribution + baseline model generation |
-| Cluster phase       | Full dataset                             | Full-performance training. imgsz=1280 possible as optional experiment.                                           |
+| YOLO11s baseline    | RTX 4050 laptop (M)                      | Pipeline validation + F1-vs-data sweep + final reported baseline (F1=0.598).                                     |
+| YOLO11m main model  | RTX 4060 (J)                             | Final reported main model. Replaces the originally planned A100 cluster run (out of scope, see status note).     |
+| ~~Cluster phase~~   | ~~A100, full dataset~~                   | ~~Out of scope for the final deliverable. Scripts preserved as design artifact.~~                                |
 | Video handling      | Frame extraction at 1 fps                | Damage is static. No need to process every frame. No mobile deployment required.                                 |
 | Retraining          | Manually triggered fine-tuning           | Achievable in scope. Fully auditable. Meets project requirements.                                                |
 | Experiment tracking | MLflow + MongoDB                         | MLflow for training curves and configs. MongoDB for production model registry.                                   |
@@ -504,16 +565,21 @@ For full documentation of the retraining pipeline see `DOCUMENTATION/IN DETAIL/r
 
 ### Team
 
-- **M** — Project lead. Responsible for pipeline architecture, overall delivery.
-- **L** — Responsible for MongoDB setup: Atlas cluster, collections, schemas, and connection.
-- **J** — Training and support on tasks
+- **M** — Project lead. Responsible for pipeline architecture, data pipeline (Step 2), Phase 0 / YOLO11s baseline training, evaluation (Step 5), inference module (Step 6), web demo (Step 8), and overall delivery.
+- **L** — Responsible for **MongoDB only**: Atlas cluster, collections, schemas, indexes, connection. L does not train models.
+- **J** — Responsible for training the **YOLO11m main model on the RTX 4060** (replaces what was originally planned as the A100 cluster YOLO11m run).
 
 ### Hardware
-- **RTX 4050 Laptop (M, 6 GB VRAM):** YOLO11s and YOLO11m fit with FP16 (`amp=True`) and batch=8 at imgsz=640. YOLO11l and above do not fit reliably. This is the Phase 0 machine.
-- **RTX 4060 (J, 8 GB VRAM):** YOLO11m fits comfortably at batch=16, imgsz=640, FP16. Useful for parallel Phase 0 runs or running experiments independently. Cannot replace the A100 for full training but meaningfully extends the team's local compute.
-- **University A100 (40 GB VRAM):** All model sizes viable. batch=32 at imgsz=640 comfortable. imgsz=1280 possible as an optional experiment. Access is shared — confirm the exact job submission process before planning cluster-dependent work. Do not assume unlimited availability.
+- **RTX 4050 Laptop (M, 6 GB VRAM):** YOLO11s and YOLO11m fit with FP16 (`amp=True`) and batch=8 at imgsz=640. YOLO11l and above do not fit reliably. This is the machine where the YOLO11s baseline (`run_20260504_202658_yolo11s`) was trained.
+- **RTX 4060 (J, 8 GB VRAM):** YOLO11m fits at batch=16, imgsz=640, FP16. In the final deliverable this is the machine where the **YOLO11m main model** is trained — it replaces the originally planned A100 cluster run.
+- **University A100 (40 GB VRAM) — not used in the final deliverable.** Originally planned for Phase 1 full-performance training. The SLURM scripts (`scripts/train_cluster.sh`, `scripts/submit_sweep.sh`) are preserved in the repository as a design artifact but were not executed. See project status note at the top of this document.
 
-### Cluster Access Details
+### Cluster Access Details (documented — not executed)
+
+> The information below describes the A100 cluster environment that the
+> repository was designed to target. **No SLURM job was actually submitted
+> for the final deliverable.** This section is kept for documentation
+> completeness and for any future continuation of the project.
 
 - **Job scheduler:** SLURM — jobs submitted with `sbatch`.
 - **Internet access:** Yes — MongoDB Atlas connection from training jobs is viable. No need for a separate `sync_to_mongo()` step; the training script can write directly to Atlas during and after training.
@@ -521,26 +587,26 @@ For full documentation of the retraining pipeline see `DOCUMENTATION/IN DETAIL/r
 - **Local storage per node:** 50 GB. RDD2022 processed (~12 GB) fits comfortably. Copy the dataset to local node storage at the start of each job — do not read from network storage during training.
 - **Code format:** Submit Python scripts only. Do not use Jupyter notebooks for cluster jobs.
 
-**Cluster job submission:**
-Use `scripts/train_cluster.sh` — see inline comments for all `--export` variables
-(`MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DEVICE`, `CACHE`,
-`LR0`, `LRF`, `COS_LR`, `OPTIMIZER`, `DATA_ROOT`, `SMOKE_TEST`).
+**Cluster job submission (reference only):**
+`scripts/train_cluster.sh` accepts the following via `--export`:
+`MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DEVICE`, `CACHE`,
+`LR0`, `LRF`, `COS_LR`, `OPTIMIZER`, `DATA_ROOT`, `SMOKE_TEST`.
 For multi-config sweeps use `scripts/submit_sweep.sh`.
 
 ```bash
-# Single run — YOLO11m, full dataset, single GPU
+# Example invocation (documented — not executed for the final deliverable)
 sbatch --export=MODEL=yolo11m,SAMPLE_RATIO=1.0,EPOCHS=100,BATCH=32,PATIENCE=20,DATA_ROOT=/path/to/rdd2022,DEVICE=0,CACHE=disk scripts/train_cluster.sh
 ```
 
 ### Shared Database Strategy
 
-Since all three team members work on different machines and the A100 has internet access, **MongoDB Atlas** (free tier) is used as the single shared database instance.
+Since the team members work on different machines (M on the RTX 4050 laptop, J on the RTX 4060), **MongoDB Atlas** (free tier) is used as the single shared database instance.
 
-- One Atlas cluster, one connection URI shared across all machines and the A100.
+- One Atlas cluster, one connection URI shared across all machines.
 - The URI is stored in a `.env` file that is never committed to Git.
 - All experiments, predictions, and metadata written by any machine are immediately visible to the rest of the team.
 
-**Checkpoint storage:** after every training run — whether on laptop, teammate machine, or A100 — the script automatically uploads `best.pt`, `last.pt`, and `best.onnx` to **Backblaze B2** (free tier, sufficient for weights alone). MongoDB Atlas stores the resulting public URLs. No machine needs to be kept online as a checkpoint server. Any team member can download any model version at any time from the stored URL.
+**Checkpoint storage:** after every training run — on M's laptop or J's RTX 4060 — the script automatically uploads `best.pt`, `last.pt`, and `best.onnx` to **Backblaze B2** (free tier, sufficient for weights alone). MongoDB Atlas stores the resulting public URLs. No machine needs to be kept online as a checkpoint server. Any team member can download any model version at any time from the stored URL.
 
 **Dataset storage:** RDD2022 is processed once (download → validate → convert → split) by one team member and uploaded to cloud storage. All other machines pull from there. The raw Sekilab ZIPs are never downloaded more than once.
 
@@ -561,12 +627,15 @@ The video is used exclusively as a demo asset — to show the model detecting da
 
 The standard training resolution is imgsz=640, which is consistent with all published RDD2022 benchmarks. imgsz=1280 can improve detection of fine cracks that are missed at lower resolution, but requires more VRAM and longer training time.
 
-This is treated as an **optional post-baseline experiment**:
+This was treated as an **optional post-baseline experiment**:
 1. Train and evaluate the full pipeline at imgsz=640 first.
-2. If cluster time and credits allow, launch a second YOLO11m run at imgsz=1280.
+2. If hardware and time allow, launch a second YOLO11m run at imgsz=1280.
 3. Compare mAP@0.5. If it improves, report both results. If there is no time, imgsz=640 is fully valid and comparable with the literature.
 
-The decision is made after the baseline run completes, not before.
+Given that Phase 1 / A100 was dropped from the final deliverable and the
+YOLO11m main model runs on J's RTX 4060 (8 GB VRAM), imgsz=1280 is **not
+attempted** — there isn't enough VRAM headroom at the required batch size.
+imgsz=640 results stand as the final reported numbers.
 
 ### Confirmed Out of Scope (do not reopen)
 - FastAPI / REST API service as a core deliverable. It exists only as an optional demo layer built on top of a finished pipeline.
