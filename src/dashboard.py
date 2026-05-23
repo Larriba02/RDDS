@@ -197,7 +197,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     st.divider()
-    if st.button("Refresh data", use_container_width=True):
+    if st.button("Refresh data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
 
@@ -242,9 +242,9 @@ if page == "Overview":
             hp = prod["hyperparams"]
             if hp:
                 hp_df = pd.DataFrame(
-                    [{"param": k, "value": v} for k, v in hp.items()]
+                    [{"param": str(k), "value": str(v)} for k, v in hp.items()]
                 )
-                st.dataframe(hp_df, use_container_width=True, hide_index=True)
+                st.dataframe(hp_df, width="stretch", hide_index=True)
             else:
                 st.write("No hyperparameter data.")
     else:
@@ -285,7 +285,7 @@ if page == "Overview":
                 yshift=14,
                 font_size=12,
             )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("No completed runs with F1 data yet.")
 
@@ -334,7 +334,7 @@ elif page == "Experiments":
 
     st.dataframe(
         df_view[display_cols],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "is_production": st.column_config.CheckboxColumn("Prod"),
@@ -373,7 +373,7 @@ elif page == "Experiments":
                 line_color="gold",
                 annotation_text="production",
             )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # mAP50 vs F1 scatter
     df_scatter = df_view[df_view["F1"].notna() & df_view["mAP50"].notna()]
@@ -388,7 +388,7 @@ elif page == "Experiments":
             title="mAP@0.5 vs F1",
         )
         fig2.update_layout(xaxis_range=[0, 1], yaxis_range=[0, 1], height=350)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
 # ---------------------------------------------------------------------------
 # Page: Validation
@@ -448,7 +448,7 @@ elif page == "Validation":
             )
     st.dataframe(
         df_summary,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "Sample ratio": st.column_config.NumberColumn("Sample ratio", format="%.2f"),
@@ -472,7 +472,7 @@ elif page == "Validation":
             title="F1 per country", height=400,
         )
         fig_country.update_layout(yaxis_range=[0, 1], xaxis_title=None)
-        st.plotly_chart(fig_country, use_container_width=True)
+        st.plotly_chart(fig_country, width="stretch")
 
     st.divider()
 
@@ -491,7 +491,7 @@ elif page == "Validation":
             height=380,
         )
         fig_class.update_layout(yaxis_range=[0, 1], xaxis_title=None)
-        st.plotly_chart(fig_class, use_container_width=True)
+        st.plotly_chart(fig_class, width="stretch")
     else:
         st.info("No per-class F1 data available.")
 
@@ -510,7 +510,7 @@ elif page == "Validation":
             height=max(250, len(df_overall) * 45),
         )
         fig_overall.update_layout(xaxis_range=[0, 1], yaxis_title=None)
-        st.plotly_chart(fig_overall, use_container_width=True)
+        st.plotly_chart(fig_overall, width="stretch")
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +599,7 @@ elif page == "Run Detail":
                     height=380,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
         with tab2:
             loss_cols_train = [c for c in ["Train box loss", "Train cls loss", "Train dfl loss"] if c in df_csv.columns]
@@ -611,7 +611,7 @@ elif page == "Run Detail":
                 for col in loss_cols_val:
                     fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"), row=1, col=2)
                 fig2.update_layout(height=380, legend=dict(orientation="h", yanchor="bottom", y=1.02))
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
 
         with tab3:
             lr_cols = [c for c in df_csv.columns if c.startswith("lr/")]
@@ -620,12 +620,12 @@ elif page == "Run Detail":
                 for col in lr_cols:
                     fig3.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"))
                 fig3.update_layout(title="Learning rate schedule", xaxis_title="Epoch", height=300)
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width="stretch")
             else:
                 st.info("No learning rate data in results.csv.")
 
         with st.expander("Raw results.csv", expanded=False):
-            st.dataframe(df_csv, use_container_width=True, hide_index=True)
+            st.dataframe(df_csv, width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------------------
 # Page: MLflow
@@ -648,7 +648,7 @@ elif page == "MLflow":
     display_mlflow = df_mlflow[["run_name", "experiment", "status"]].copy()
     for col in ["params", "metrics"]:
         display_mlflow[col] = df_mlflow[col].apply(lambda d: ", ".join(f"{k}={v}" for k, v in d.items()) if d else "")
-    st.dataframe(display_mlflow, use_container_width=True, hide_index=True)
+    st.dataframe(display_mlflow, width="stretch", hide_index=True)
 
     st.divider()
 
@@ -670,7 +670,7 @@ elif page == "MLflow":
             st.dataframe(
                 pd.DataFrame([{"param": k, "value": v} for k, v in row["params"].items()]),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
     with col_m:
         st.markdown("**Metrics**")
@@ -678,7 +678,7 @@ elif page == "MLflow":
             st.dataframe(
                 pd.DataFrame([{"metric": k, "value": v} for k, v in row["metrics"].items()]),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
 
     st.divider()
