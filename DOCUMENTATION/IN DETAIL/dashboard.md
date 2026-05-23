@@ -163,3 +163,40 @@ streamlit run src/dashboard.py
 # macOS / Linux — default port
 streamlit run src/dashboard.py
 ```
+
+#### Troubleshooting
+
+**`streamlit: command not found` / exit code 127**
+The venv is not active. Either activate it first (`.venv\Scripts\activate` on
+Windows, `source .venv/bin/activate` on macOS/Linux) or call the binary by its
+full path:
+
+```powershell
+.\.venv\Scripts\streamlit.exe run src/dashboard.py
+```
+
+**PowerShell prints `NativeCommandError` but the server still starts**
+Windows PowerShell 5.1 wraps any stderr line from a native executable into an
+ErrorRecord when you use `2>&1`. Streamlit logs its startup banner
+(`Uvicorn server started...`) to stderr, so the redirect makes PS report a
+fake error even though exit code is 0 and the server is reachable on
+`http://localhost:8501`. Solution: do **not** add `2>&1` — let streamlit
+write to stderr normally.
+
+**Background / detached launches die silently on Windows**
+On Windows, Streamlit will not survive if it is spawned without an attached
+console — neither `Start-Process -WindowStyle Hidden/Minimized` nor
+`cmd /c start /MIN` keeps it alive, and the same is true of any tool that
+spawns it in the background (including Claude Code's background-task runner).
+The process exits as soon as the parent shell hands off.
+
+The reliable pattern is to keep it in the foreground of an interactive
+PowerShell window:
+
+```powershell
+.\.venv\Scripts\activate
+streamlit run src/dashboard.py    # leave this window open
+```
+
+If you want it truly detached as a service, wrap it with `nssm` or run it
+inside WSL where standard `nohup` works.
