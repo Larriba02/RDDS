@@ -228,3 +228,12 @@ logs/
 .claude/.review-marker
 # Per-developer Claude Code local settings (personal overrides, not shared)
 .claude/settings.local.json
+
+# Final TFG memoria — contains live credentials, NEVER commit.
+# The .docx draft is kept locally only; submit it directly via the course portal.
+DOCUMENTATION/RDDS_TFG_Memoria_v1.docx
+# Office lock files (Word/Excel temporary files)
+~$*.docx
+~$*.xlsx
+# Local extraction artefacts
+.memoria_extract.txt
