@@ -1,6 +1,6 @@
 # RDDS — Inference Module
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.0 — May 2026*
+*Version 1.1 — May 2026*
 
 ---
 
@@ -99,7 +99,8 @@ python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir ou
 ### Checkpoint resolution order
 
 1. `--model <path>` flag — local `.pt` file. Bypasses MongoDB lookup entirely.
-   Useful before the A100 cluster run when `best.pt` exists under `runs/` locally.
+   Useful before a checkpoint has been registered as production in MongoDB,
+   when `best.pt` exists under `runs/` locally.
 2. `runs/train/<run_id>/weights/best.pt` — direct local match.
 3. `runs/train/<prefix>*/weights/best.pt` — fuzzy match (dir name starts with `run_id`).
 4. Download `best.pt` from the Backblaze B2 URL stored in `experiments.checkpoints.best_pt`.
@@ -164,7 +165,7 @@ python -m src.inference.predict --source path/to/image.jpg
 |------|---------------|---------|--------|-------------|
 | `--source` | `path` | (required) | Single image file or folder of images. Video files are rejected — use `extract_frames` first. | Always required |
 | `--output-dir` | `path` | `outputs/predictions/` | Directory where annotated images are saved | Change to separate outputs per experiment or session |
-| `--model` | `path` | `None` (MongoDB lookup) | Local `.pt` checkpoint — bypasses MongoDB production-model lookup | Use when the cluster has not run yet and `best.pt` is available locally under `runs/` |
+| `--model` | `path` | `None` (MongoDB lookup) | Local `.pt` checkpoint — bypasses MongoDB production-model lookup | Use when no run has been registered as production yet and `best.pt` is available locally under `runs/` |
 | `--conf` | `float` | `0.5` | Confidence threshold for inference | Lower to `0.3` to surface weaker detections; raise to `0.7` for high-confidence-only output |
 | `--iou` | `float` | `0.5` | IoU threshold for NMS | Keep at `0.5` for consistency with CRDDC2022 evaluation protocol |
 | `--device` | `str` | `"0"` | CUDA device: `"0"` for GPU, `"cpu"` for CPU | Pass `cpu` when running on a machine without a GPU |

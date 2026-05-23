@@ -1,6 +1,29 @@
 # Retraining Pipeline — Detailed Guide
 **RDDS · Group 3 · UFV**  
-*Version 1.0 — May 2026*
+*Version 1.1 — May 2026*
+
+---
+
+## Scope note (final deliverable)
+
+The retraining workflow is **documented and implemented, but not executed end-to-end
+on a real new-data batch** in the final deliverable. `src/training/retrain.py` is
+in the repo, exercises every step (ingest → mixed training → evaluate → promote),
+and has been **smoke-tested on the synthetic mini-dataset**
+(`tests/data/tiny_rdd2022/`, 14 images, 1 epoch) to confirm the pipeline runs
+end-to-end without errors.
+
+Two reasons for the execution gap:
+
+1. **Team bandwidth** — the remaining timeline is allocated to finishing the
+   YOLO11m main model, evaluation, and the web demo.
+2. **Compute cost on personal GPUs** — a meaningful retraining run on top of
+   the production model would occupy the same RTX 4050 / RTX 4060 GPUs that
+   are needed for the main training and evaluation work.
+
+The manually triggered fine-tuning design remains the recommended long-term
+workflow. Everything below describes how to *run* retraining when those
+constraints are relaxed.
 
 ---
 
@@ -172,9 +195,10 @@ An `experiments` document is inserted before training starts:
 }
 ```
 
-A SIGTERM handler is installed at this point. If SLURM's wall-clock limit kills
-the job, the handler updates `status` to `"interrupted"` before the process
-exits.
+A SIGTERM handler is installed at this point. If the process receives SIGTERM
+(e.g. a SLURM wall-clock kill in the original Phase 1 design, or a manual
+`kill` on a local run), the handler updates `status` to `"interrupted"` before
+the process exits.
 
 ### Step 5 — Fine-tune
 

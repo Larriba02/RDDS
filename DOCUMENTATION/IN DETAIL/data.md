@@ -1,6 +1,6 @@
 # Data Ingestion — In Detail
 **RDDS · Step 2**  
-*Version 1.1 — May 2026*
+*Version 1.2 — May 2026*
 
 This document explains the data ingestion pipeline in depth: what each module
 does, why it is designed that way, and what to watch out for when running it
@@ -190,8 +190,10 @@ A self-contained dataset committed to the repository. Contains:
 
 Purpose:
 1. Smoke-test every pipeline stage without downloading the real dataset.
-2. Cluster smoke test in Step 4: `sbatch` a 1-epoch run on this dataset
-   before queuing the full A100 job.
+2. Cluster smoke test in the original Step 4 / Phase 1 design (`sbatch` a 1-epoch
+   run on this dataset before queuing the full A100 job). Phase 1 is **not
+   executed** in the final deliverable, so this smoke test is now only a
+   reference for the documented SLURM path.
 
 Regenerate with:
 ```

@@ -1,6 +1,14 @@
 # RDDS — Training Module (IN DETAIL)
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.2 — May 2026*
+*Version 1.3 — May 2026*
+
+> **Scope note (final deliverable):** Phase 1 / A100 cluster training is
+> **out of scope for execution**. The two-phase design (laptop sandbox + A100
+> cluster) is preserved as a documented architecture, but no SLURM run is
+> reported. The YOLO11m main model is trained locally by J on the RTX 4060.
+> Cluster-specific commands and flag presets below describe the original
+> SLURM-based design; on RTX 4060, J uses local batch sizes that fit 8 GB VRAM
+> (see `RDDS_Pipeline.md` for the local hardware profile).
 
 This document describes the implementation of the Step 3 training pipeline:
 `src/training/train.py`, `src/training/upload_checkpoint.py`, and
@@ -24,12 +32,12 @@ python -m src.training.train \
     --batch 8 \
     --patience 15
 
-# Phase 1 — cluster, full dataset
+# YOLO11m main model — J, RTX 4060 (replaces planned Phase 1 / A100 run)
 python -m src.training.train \
     --model yolo11m \
     --sample-ratio 1.0 \
     --epochs 100 \
-    --batch 32 \
+    --batch 16 \
     --patience 20
 
 # Smoke test (skip B2 upload and promotion)
@@ -72,10 +80,11 @@ python -m src.training.train \
      Ultralytics training to force a relative local path. Without this,
      Ultralytics' built-in MLflow callback can receive a bare Windows absolute
      path (e.g. `C:\…\runs\train`) that MLflow rejects as an invalid URI.
-   - A `SIGTERM` signal handler is installed. When SLURM's wall-clock limit
-     kills the job, the handler sets `status="interrupted"` in MongoDB before
-     the process exits, so the experiment record is never left stuck in
-     `"running"` state.
+   - A `SIGTERM` signal handler is installed. On SIGTERM (e.g. a manual
+     `kill` on a local run, or — in the original Phase 1 design — a SLURM
+     wall-clock kill), the handler sets `status="interrupted"` in MongoDB
+     before the process exits, so the experiment record is never left stuck
+     in `"running"` state.
 10. **Run Ultralytics training** — `YOLO(model).train(data=..., seed=42, ...)`.
     On failure, sets `status="failed"` in MongoDB and re-raises.
 11. **Extract metrics** — reads `runs/train/{run_id}/results.csv`. Computes F1
@@ -124,7 +133,9 @@ when export failed) are skipped with a warning, not an error.
 
 The boto3 client is configured with `connect_timeout=30 s` and
 `read_timeout=300 s` to tolerate slow B2 connections when uploading large
-`.pt` files from the cluster. These values are hardcoded in the private
+`.pt` files (e.g. over a residential link from the RTX 4050 / RTX 4060, or —
+in the original Phase 1 design — from the A100 cluster). These values are
+hardcoded in the private
 `_b2_client()` helper and do not need to be set in `.env`.
 
 Environment variables required:
@@ -194,7 +205,7 @@ python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
 
 ## 6. CLI reference
 
-### `python -m src.training.train` — Full training cycle (Phase 0 / Phase 1)
+### `python -m src.training.train` — Full training cycle (Phase 0 baseline / YOLO11m main)
 
 **Windows (PowerShell)**
 ```powershell
@@ -212,18 +223,18 @@ python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --b
 
 | Flag | Type / Options | Default | Effect | When to use |
 |------|---------------|---------|--------|-------------|
-| `--model` | `yolo11s` \| `yolo11m` \| `yolo11l` \| `yolo11x` | `yolo11s` | Ultralytics model variant to train | Use `yolo11s` for Phase 0 laptop runs; `yolo11m` for Phase 1 cluster runs |
+| `--model` | `yolo11s` \| `yolo11m` \| `yolo11l` \| `yolo11x` | `yolo11s` | Ultralytics model variant to train | `yolo11s` for the M / RTX 4050 baseline; `yolo11m` for J's RTX 4060 main model |
 | `--sample-ratio` | `float` (0.0–1.0) | `SAMPLE_RATIO` from `.env` | Fraction of training images to use, sampled per country | Phase 0 progression: `0.10` → `0.25` → `0.50` → `1.0` |
-| `--epochs` | `int` | `50` | Maximum training epochs | Phase 0: `50`; Phase 1 full run: `100` |
-| `--batch` | `int` | `8` | Batch size | Match to GPU VRAM: `8` for RTX 4050 6 GB; `32` for A100 40 GB |
-| `--patience` | `int` | `15` | Early-stopping patience (epochs without mAP improvement) | Phase 0: `15`; Phase 1: `20` |
+| `--epochs` | `int` | `50` | Maximum training epochs | Phase 0 sweep: `50`; final YOLO11m main run: `100` |
+| `--batch` | `int` | `8` | Batch size | Match to GPU VRAM: `8` for RTX 4050 6 GB; `16` for RTX 4060 8 GB. (`32` is the A100 preset retained from the original Phase 1 design.) |
+| `--patience` | `int` | `15` | Early-stopping patience (epochs without mAP improvement) | Phase 0 baseline: `15`; final YOLO11m main run: `20` |
 | `--imgsz` | `int` | `640` | Input image size in pixels | Keep at `640` (RDD2022 standard); change only with explicit justification |
 | `--no-amp` | flag | off (AMP enabled) | Disable FP16 mixed-precision training | Pass if you see AMP-related NaN losses; otherwise leave AMP on |
 | `--lr0` | `float` | `0.01` | Initial learning rate | Lower to `0.001` for fine-tuning; keep default for full training from scratch |
 | `--lrf` | `float` | `0.01` | Final LR as a fraction of `lr0` (LR decays from `lr0` to `lr0 * lrf`) | Increase to `0.1` for a more gradual decay schedule |
-| `--cos-lr` | flag | off (linear decay) | Use cosine learning rate schedule instead of linear | Enable for longer Phase 1 runs where a warmup-then-decay cycle helps |
+| `--cos-lr` | flag | off (linear decay) | Use cosine learning rate schedule instead of linear | Enable for longer full-dataset runs where a warmup-then-decay cycle helps |
 | `--optimizer` | `auto` \| `SGD` \| `Adam` \| `AdamW` \| `NAdam` \| `RAdam` \| `RMSProp` | `auto` | Optimizer (Ultralytics selects SGD for YOLO when `auto`) | Keep `auto`; switch to `AdamW` only for experimental runs |
-| `--cache` | `False` \| `ram` \| `disk` | `False` | Cache images to speed up training | `ram` if you have ≥16 GB RAM and a small dataset fraction; `disk` on the cluster |
+| `--cache` | `False` \| `ram` \| `disk` | `False` | Cache images to speed up training | `ram` if you have ≥16 GB RAM and a small dataset fraction; `disk` on machines with fast local storage (originally intended for the A100 cluster) |
 | `--workers` | `int` | `8` | Data-loading worker threads | Lower to `4` on Windows if DataLoader errors appear; keep `8` on Linux |
 | `--device` | `str` | `"0"` | CUDA device(s): `"0"` for single GPU, `"0,1,2,3"` for multi-GPU DDP | Match to available hardware; Ultralytics handles DDP spawning internally |
 | `--skip-upload` | flag | off | Skip Backblaze B2 checkpoint upload | Use for local smoke tests without real B2 credentials |
@@ -232,7 +243,7 @@ python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --b
 #### Full example
 
 ```powershell
-# Windows — Phase 1 cluster-style full run
+# Windows — full-dataset run (original Phase 1 / A100 preset, kept as a documented template)
 python -m src.training.train `
     --model yolo11m `
     --sample-ratio 1.0 `
@@ -248,7 +259,7 @@ python -m src.training.train `
     --device 0
 ```
 ```bash
-# macOS / Linux — Phase 1 cluster-style full run
+# macOS / Linux — full-dataset run (original Phase 1 / A100 preset, kept as a documented template)
 python -m src.training.train \
     --model yolo11m \
     --sample-ratio 1.0 \

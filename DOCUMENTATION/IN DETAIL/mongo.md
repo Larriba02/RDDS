@@ -259,7 +259,8 @@ via `@lru_cache`. Start a fresh shell / kill the REPL and rerun.
 
 ## 8. Done criterion for Step 1
 
-All three machines (laptop, 4060, A100) run:
+Each machine actually used in the final deliverable (M's RTX 4050 laptop, J's
+RTX 4060) runs:
 ```bash
 python -m src.db.setup_atlas
 python -m src.db.test_connection
