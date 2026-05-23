@@ -17,7 +17,14 @@ final deliverable**. The code stays in the repo as a design artifact but is
   in the repository as documented-but-not-executed assets.
 - **Step 7 — Retraining pipeline.** `src/training/retrain.py` was
   implemented and smoke-tested on the synthetic mini-dataset only. No
-  end-to-end retraining run on real new data will be reported.
+  end-to-end retraining run on real new data will be reported. The
+  pipeline philosophy is unchanged — incremental fine-tuning on freshly
+  ingested road imagery is still the intended long-term workflow. It is
+  out of scope **for execution only** because (a) we have no fresh batch
+  of road images outside RDD2022 to retrain on, (b) the team does not have
+  the bandwidth in the remaining timeline, and (c) a real retrain on top
+  of the production weights is too costly on M's RTX 4050 and J's RTX
+  4060 to fit alongside the rest of the work.
 
 The **final reported models** are both trained **locally**:
 
@@ -544,6 +551,23 @@ python -m src.inference.predict --source path/to/image.jpg --dry-run
 > **not exercised end-to-end on real new data** before submission. The
 > code stays in the repo as a design artifact and full documentation is
 > preserved below.
+>
+> **Why it is out of scope (execution only, not design):** The project's
+> retraining philosophy is unchanged — incremental fine-tuning on newly
+> ingested imagery remains the intended long-term workflow. Three
+> independent constraints stopped us from running it on real data before
+> the deadline:
+> 1. **No new data.** We have no fresh batch of road images outside
+>    RDD2022. A "retraining" run with no genuinely new data would not be
+>    a meaningful exercise of the workflow — it would just be another
+>    fine-tune of the same dataset.
+> 2. **Team bandwidth.** With M finishing the baseline + web demo and J
+>    finishing the YOLO11m main model, no one has the remaining hours to
+>    drive a real retrain through to a promotion/regression decision.
+> 3. **Compute cost.** A real retrain on top of the production weights
+>    (full mixed training, ~20 epochs, val + B2 upload + evaluation
+>    afterwards) is expensive on M's RTX 4050 and J's RTX 4060 and would
+>    crowd out the runs that are still required for the final report.
 
 **Owner:** M  
 **Status:** Designed, implemented, and smoke-tested only — no real retraining run reported.  
