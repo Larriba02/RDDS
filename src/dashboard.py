@@ -134,13 +134,21 @@ def load_validation_results() -> list[dict]:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_results_csv(run_id: str) -> pd.DataFrame | None:
+def load_results_csv(run_id: str, b2_url: str | None = None) -> pd.DataFrame | None:
     csv_path = RUNS_DIR / run_id / "results.csv"
-    if not csv_path.exists():
-        return None
-    df = pd.read_csv(csv_path)
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    if csv_path.exists():
+        df = pd.read_csv(csv_path)
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    if b2_url:
+        try:
+            df = pd.read_csv(b2_url)
+        except Exception as exc:
+            st.warning(f"Could not fetch results.csv from B2: {exc}")
+            return None
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    return None
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -487,7 +495,7 @@ elif page == "Validation":
         fig_class = px.bar(
             pd.DataFrame(class_rows),
             x="Class", y="F1", color="Run", barmode="group",
-            title="F1 per class  (D00=lineal, D10=transversal, D20=longitudinal, D40=otros)",
+            title="F1 per class  (D00=longitudinal crack, D10=transverse crack, D20=alligator crack, D40=pothole)",
             height=380,
         )
         fig_class.update_layout(yaxis_range=[0, 1], xaxis_title=None)
@@ -562,10 +570,14 @@ elif page == "Run Detail":
 
     # Training curves from results.csv
     st.subheader("Training curves")
-    df_csv = load_results_csv(selected_run)
+    results_url = (run_row.get("checkpoints") or {}).get("results_csv")
+    df_csv = load_results_csv(selected_run, results_url)
 
     if df_csv is None:
-        st.info(f"No results.csv found at runs/train/{selected_run}/results.csv")
+        st.info(
+            f"No results.csv available for {selected_run} "
+            f"(checked runs/train/{selected_run}/results.csv and B2)."
+        )
     else:
         # Map readable names
         col_map = {

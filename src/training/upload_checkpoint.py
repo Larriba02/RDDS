@@ -1,12 +1,14 @@
 """
 src/training/upload_checkpoint.py
 ----------------------------------
-Upload training checkpoints (best.pt, last.pt, best.onnx) to Backblaze B2.
+Upload training checkpoints (best.pt, last.pt, best.onnx) and the
+per-epoch training curves (results.csv) to Backblaze B2.
 
-The three files are uploaded under the prefix:
+The files are uploaded under the prefix:
     checkpoints/<run_id>/best.pt
     checkpoints/<run_id>/last.pt
     checkpoints/<run_id>/best.onnx
+    checkpoints/<run_id>/results.csv
 
 The returned dict maps filename to the public download URL, ready to be
 stored in the ``experiments`` MongoDB document under ``checkpoints``.
@@ -142,10 +144,17 @@ def upload_checkpoints(
         "best.onnx": "best_onnx",
     }
 
-    for filename in _CHECKPOINT_FILES:
-        local_path = weights_dir / filename
+    # (local_path, b2_filename, content_type)
+    targets: list[tuple[Path, str, str]] = [
+        (weights_dir / fn, fn, "application/octet-stream") for fn in _CHECKPOINT_FILES
+    ]
+    # results.csv lives at the run root, not under weights/.
+    targets.append((run_dir / "results.csv", "results.csv", "text/csv"))
+    key_map["results.csv"] = "results_csv"
+
+    for local_path, filename, content_type in targets:
         if not local_path.exists():
-            print(f"  [skip] {filename} not found in {weights_dir}")
+            print(f"  [skip] {filename} not found at {local_path}")
             continue
 
         b2_key = f"checkpoints/{run_id}/{filename}"
@@ -155,7 +164,7 @@ def upload_checkpoints(
                 str(local_path),
                 bucket,
                 b2_key,
-                ExtraArgs={"ContentType": "application/octet-stream"},
+                ExtraArgs={"ContentType": content_type},
             )
             url = _public_url(endpoint, bucket, b2_key)
             urls[key_map[filename]] = url
@@ -188,7 +197,26 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="Ultralytics output directory containing weights/ subfolder.",
     )
+    parser.add_argument(
+        "--no-mongo",
+        action="store_true",
+        help="Skip merging uploaded URLs into the experiments document in MongoDB.",
+    )
     return parser.parse_args()
+
+
+def _merge_mongo_checkpoints(run_id: str, urls: dict[str, str]) -> None:
+    """Merge uploaded URLs into the experiments document without overwriting
+    existing keys for files that were skipped this run."""
+    from src.db.connection import get_db
+
+    db = get_db()
+    update = {f"checkpoints.{k}": v for k, v in urls.items()}
+    result = db["experiments"].update_one({"run_id": run_id}, {"$set": update})
+    if result.matched_count == 0:
+        print(f"  [warn] No experiments document found for run_id={run_id}.")
+    else:
+        print(f"  Mongo updated: {list(urls)} on run_id={run_id}.")
 
 
 if __name__ == "__main__":
@@ -197,3 +225,9 @@ if __name__ == "__main__":
     print("\nCheckpoint URLs:")
     for key, url in result.items():
         print(f"  {key}: {url}")
+    if result and not args.no_mongo:
+        print("\nUpdating MongoDB ...")
+        try:
+            _merge_mongo_checkpoints(args.run_id, result)
+        except Exception as exc:
+            print(f"  [warn] Mongo update failed: {exc}")
