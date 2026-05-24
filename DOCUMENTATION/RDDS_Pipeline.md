@@ -1,6 +1,6 @@
 # RDDS — Pipeline Document
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.5 — May 2026*
+*Version 2.6 — May 2026*
 
 ---
 
@@ -271,14 +271,14 @@ exists, the DB insert is skipped (annotated image is still saved to disk).
 | Source | What it provides |
 |--------|-----------------|
 | MongoDB `experiments` | Canonical run results, hyperparameters, production status |
-| `runs/train/{run_id}/results.csv` | Per-epoch training curves (loss, mAP, precision, recall) |
+| `runs/train/{run_id}/results.csv` | Per-epoch training curves (loss, mAP, precision, recall); also uploaded to Backblaze B2 and referenced from `experiments.checkpoints.results_csv` for dashboard fallback |
 | `mlruns/` (MLflow) | Logged parameters and final metrics per run |
 
 **Pages:**
 
 - **Overview** — Production model card with F1/mAP/precision/recall metrics; F1-vs-data-fraction curve showing Phase 0 diminishing-returns progression.
 - **Experiments** — Filterable table of all runs ranked by F1; comparison bar chart; mAP@0.5 vs F1 scatter.
-- **Run Detail** — Select any run and see per-epoch training curves (metrics, losses, learning rate) pulled from `results.csv`, plus hyperparameters and Backblaze B2 checkpoint URLs.
+- **Run Detail** — Select any run and see per-epoch training curves (metrics, losses, learning rate) pulled from the local `results.csv` (falling back to the Backblaze B2 copy via `experiments.checkpoints.results_csv` when the local file is missing; single-epoch runs are rendered with markers and a warning), plus hyperparameters and Backblaze B2 checkpoint URLs.
 - **MLflow** — Tabular view of all MLflow-logged runs with params and metrics. Link to native `mlflow ui` for full per-epoch curves logged by Ultralytics' built-in callback.
 
 **Run:**
@@ -629,7 +629,7 @@ Since the team members work on different machines (M on the RTX 4050 laptop, J o
 - The URI is stored in a `.env` file that is never committed to Git.
 - All experiments, predictions, and metadata written by any machine are immediately visible to the rest of the team.
 
-**Checkpoint storage:** after every training run — on M's laptop or J's RTX 4060 — the script automatically uploads `best.pt`, `last.pt`, and `best.onnx` to **Backblaze B2** (free tier, sufficient for weights alone). MongoDB Atlas stores the resulting public URLs. No machine needs to be kept online as a checkpoint server. Any team member can download any model version at any time from the stored URL.
+**Checkpoint storage:** after every training run — on M's laptop or J's RTX 4060 — the script automatically uploads `best.pt`, `last.pt`, `best.onnx`, and the per-epoch `results.csv` to **Backblaze B2** (free tier, sufficient for weights and training curves). MongoDB Atlas stores the resulting public URLs under `experiments.checkpoints` (including `results_csv`, which the dashboard uses as a fallback when the local file is missing). No machine needs to be kept online as a checkpoint server. Any team member can download any model version at any time from the stored URL.
 
 **Dataset storage:** RDD2022 is processed once (download → validate → convert → split) by one team member and uploaded to cloud storage. All other machines pull from there. The raw Sekilab ZIPs are never downloaded more than once.
 

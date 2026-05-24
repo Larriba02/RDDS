@@ -89,8 +89,9 @@ YOLO11m main model is trained locally by J on the RTX 4060 instead.
   (`images_metadata`, `experiments`, `predictions`). Connection via `MONGO_URI`
   in `.env`.
 - **Backblaze B2:** bucket name in `BACKBLAZE_BUCKET`, credentials in `.env`.
-  Stores `best.pt`, `last.pt`, `best.onnx` per run; URLs written into the
-  `experiments` document.
+  Stores `best.pt`, `last.pt`, `best.onnx`, and `results.csv` per run; URLs
+  written into the `experiments.checkpoints` document (the dashboard reads
+  `results_csv` as a fallback when the local file is missing).
 - **Dataset (RDD2022):** Sekilab S3, public CC BY-SA 4.0. Local path on each
   machine in `RDD_DATA_ROOT`.
 - **MLflow:** local `./mlruns/` per machine.

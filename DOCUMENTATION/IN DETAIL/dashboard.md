@@ -1,7 +1,7 @@
 # Dashboard — In Detail
 
 **Road Damage Detection System · Experiment Tracking & Validation Viewer**  
-*Version 1.0 — May 2026*
+*Version 1.1 — May 2026*
 
 ---
 
@@ -66,7 +66,13 @@ results to `experiments.metrics.evaluation_val` in MongoDB.
 ### Run Detail
 
 Per-run deep dive: hyperparameters, checkpoint URLs (Backblaze B2), and
-per-epoch training curves read from `runs/train/<run_id>/results.csv`.
+per-epoch training curves. The curves are read from
+`runs/train/<run_id>/results.csv` when the local file is present; otherwise
+the dashboard falls back to fetching `results.csv` from the Backblaze B2 URL
+stored in MongoDB under `experiments.checkpoints.results_csv` (10 s HTTP
+timeout). When only a single epoch is present (e.g. a smoke-test run) the
+curves are drawn with markers and a warning is shown — line traces only
+appear once two or more epochs exist.
 
 ### MLflow
 
@@ -142,9 +148,10 @@ streamlit run src/dashboard.py
 #### Flags
 
 No configurable flags — the dashboard reads its data exclusively from MongoDB
-(`MONGO_URI` in `.env`), `runs/train/*/results.csv`, and the local MLflow
-`mlruns/` directory. All configuration is done through the sidebar inside the
-running app.
+(`MONGO_URI` in `.env`), `runs/train/*/results.csv` (with a Backblaze B2
+fallback via `experiments.checkpoints.results_csv` when the local file is
+missing), and the local MLflow `mlruns/` directory. All configuration is done
+through the sidebar inside the running app.
 
 The dashboard opens at **http://localhost:8501** by default. To change the port,
 pass Streamlit's own flag:

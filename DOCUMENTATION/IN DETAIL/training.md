@@ -1,6 +1,6 @@
 # RDDS — Training Module (IN DETAIL)
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.3 — May 2026*
+*Version 1.4 — May 2026*
 
 > **Scope note (final deliverable):** Phase 1 / A100 cluster training is
 > **out of scope for execution**. The two-phase design (laptop sandbox + A100
@@ -123,13 +123,22 @@ python -m src.training.train \
 ## 2. `src/training/upload_checkpoint.py`
 
 Uploads `best.pt`, `last.pt`, and `best.onnx` from `runs/train/{run_id}/weights/`
-to Backblaze B2 under the prefix `checkpoints/{run_id}/`.
+plus the per-epoch training curves `results.csv` from `runs/train/{run_id}/`
+to Backblaze B2 under the prefix `checkpoints/{run_id}/`. The `.pt`/`.onnx`
+files are uploaded as `application/octet-stream`; `results.csv` is uploaded
+as `text/csv` so the dashboard can fetch it directly.
 
-Returns a dict `{"best_pt": url, "last_pt": url, "best_onnx": url}` which is
-stored in the `experiments` MongoDB document under `checkpoints`.
+Returns a dict `{"best_pt": url, "last_pt": url, "best_onnx": url, "results_csv": url}`
+which is stored in the `experiments` MongoDB document under `checkpoints`.
+A key is omitted if the corresponding file was not found on disk.
 
 Raises `RuntimeError` if any file fails to upload. Missing files (e.g. `best.onnx`
 when export failed) are skipped with a warning, not an error.
+
+When invoked as a standalone CLI, the script merges the returned URLs into the
+`experiments` document in MongoDB by default (only the keys actually uploaded
+are `$set`, so it never overwrites a previously-uploaded artefact). Pass
+`--no-mongo` to skip the MongoDB update and only re-upload the files.
 
 The boto3 client is configured with `connect_timeout=30 s` and
 `read_timeout=300 s` to tolerate slow B2 connections when uploading large
@@ -199,7 +208,7 @@ python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
 | best.onnx | `runs/train/{run_id}/weights/best.onnx` |
 | MongoDB doc | `rdds.experiments` collection, `run_id` field |
 | MLflow run | `./mlruns/` (local only) |
-| B2 checkpoints | `checkpoints/{run_id}/best.pt` etc. |
+| B2 checkpoints | `checkpoints/{run_id}/{best.pt,last.pt,best.onnx,results.csv}` |
 
 ---
 

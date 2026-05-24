@@ -1,6 +1,6 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 2.2 — May 2026*
+*Version 2.3 — May 2026*
 
 Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
 
@@ -277,7 +277,7 @@ cls_weight:         from class_distribution.json
   - Writes MongoDB `experiments` doc with status="running" before training starts.
   - Runs Ultralytics YOLO11 training, exports best.onnx, uploads to B2, updates MongoDB with final metrics.
   - Logs to MLflow. Calls `maybe_promote` at the end.
-- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
+- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx`, and `results.csv` to Backblaze B2; URLs (including `checkpoints.results_csv`) are merged into the `experiments` document. Standalone CLI merges URLs into MongoDB by default (use `--no-mongo` to skip).
 - [x] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A). Uses MongoDB transaction for atomic is_production toggle.
 
 ### Phase 0 results (actual)
@@ -295,7 +295,7 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 - [x] Training completes without errors at all four sample ratios.
 - [x] MongoDB `experiments` has four completed documents with real metrics.
 - [x] MLflow has logged runs.
-- [x] Backblaze has `best.pt`, `last.pt`, and `best.onnx` for each run.
+- [x] Backblaze has `best.pt`, `last.pt`, `best.onnx`, and `results.csv` for each run.
 - [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
 
 ---

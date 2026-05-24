@@ -1,6 +1,6 @@
 # Retraining Pipeline — Detailed Guide
 **RDDS · Group 3 · UFV**  
-*Version 1.1 — May 2026*
+*Version 1.2 — May 2026*
 
 ---
 
@@ -233,10 +233,11 @@ continues. The warning is printed and the run continues without `best.onnx`.
 
 ### Step 9 — Upload to Backblaze B2
 
-`upload_checkpoints(run_id, run_dir)` uploads `best.pt`, `last.pt`, and
-`best.onnx` to B2. URLs are written back to `experiments.checkpoints`. If
-upload fails, the warning is printed and the run continues (local files are
-still on disk).
+`upload_checkpoints(run_id, run_dir)` uploads `best.pt`, `last.pt`,
+`best.onnx`, and `results.csv` to B2. URLs are written back to
+`experiments.checkpoints` (including `results_csv`, which the dashboard uses
+as a fallback when the local `results.csv` is missing). If upload fails, the
+warning is printed and the run continues (local files are still on disk).
 
 ### Step 10 — Evaluate and promote
 
@@ -327,7 +328,7 @@ dashboard and in MongoDB queries.
 | Module | How retrain.py uses it |
 |--------|------------------------|
 | `src.data.ingest.ingest` | Ingests new image metadata into MongoDB (imported directly). |
-| `src.training.upload_checkpoint.upload_checkpoints` | Uploads best.pt, last.pt, best.onnx to B2 (imported directly). |
+| `src.training.upload_checkpoint.upload_checkpoints` | Uploads best.pt, last.pt, best.onnx, and results.csv to B2 (imported directly). |
 | `src.evaluation.evaluate.evaluate` | Runs CRDDC2022 evaluation on the fixed val set (imported directly). |
 | `src.training.promote.maybe_promote` | Applies promotion rule and atomic MongoDB transaction (imported directly). |
 | `src.db.connection.get_db` | MongoDB access for document writes and production experiment lookup. |
