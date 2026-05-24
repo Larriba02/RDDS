@@ -600,6 +600,14 @@ elif page == "Run Detail":
         }
         df_csv = df_csv.rename(columns={k: v for k, v in col_map.items() if k in df_csv.columns})
 
+        if len(df_csv) < 2:
+            st.warning(
+                f"This run only has {len(df_csv)} epoch recorded — curves render "
+                "as a single marker. Useful for verifying that training started, "
+                "but not for tracking convergence."
+            )
+        _curve_mode = "lines+markers" if len(df_csv) >= 2 else "markers"
+
         tab1, tab2, tab3 = st.tabs(["Metrics", "Losses", "Learning rate"])
 
         with tab1:
@@ -607,7 +615,7 @@ elif page == "Run Detail":
             if metric_cols and "Epoch" in df_csv.columns:
                 fig = go.Figure()
                 for col in metric_cols:
-                    fig.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"))
+                    fig.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode))
                 fig.update_layout(
                     title="Val metrics per epoch",
                     xaxis_title="Epoch",
@@ -624,9 +632,9 @@ elif page == "Run Detail":
             if (loss_cols_train or loss_cols_val) and "Epoch" in df_csv.columns:
                 fig2 = make_subplots(rows=1, cols=2, subplot_titles=("Train losses", "Val losses"))
                 for col in loss_cols_train:
-                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"), row=1, col=1)
+                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode), row=1, col=1)
                 for col in loss_cols_val:
-                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"), row=1, col=2)
+                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode), row=1, col=2)
                 fig2.update_layout(height=380, legend=dict(orientation="h", yanchor="bottom", y=1.02))
                 st.plotly_chart(fig2, width="stretch")
 
@@ -635,7 +643,7 @@ elif page == "Run Detail":
             if lr_cols and "Epoch" in df_csv.columns:
                 fig3 = go.Figure()
                 for col in lr_cols:
-                    fig3.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"))
+                    fig3.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode))
                 fig3.update_layout(title="Learning rate schedule", xaxis_title="Epoch", height=300)
                 st.plotly_chart(fig3, width="stretch")
             else:
