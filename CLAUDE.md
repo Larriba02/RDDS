@@ -213,10 +213,13 @@ Defined in `.claude/settings.json`.
 
 ## 12. Known operational quirks
 
-- **OneDrive + git:** the working directory lives under OneDrive. Never run
-  `git add` / `git commit` from a sandbox / WSL bash session — `.git/index.lock`
-  gets stuck. Run git from the user's PowerShell. File edits via Read/Write/Edit
-  tools are fine.
+- **Working directory:** the repo lives at
+  `C:\Users\<user>\Local\ESTUDIOS\3ºCARRERA\VS\2do CUATRI\INTEGRATING PROJECT\RDDS\`.
+  It was originally inside OneDrive (which caused `.git/index.lock` issues
+  when git was driven from a sandbox / WSL bash session), and was moved to
+  `Local\` to avoid the cloud-sync interference. There is no OneDrive copy
+  on disk any more. Run git from the user's PowerShell; file edits via
+  Read/Write/Edit tools are fine from any shell.
 - **Python version:** **3.12.x is the project standard.** The venv must be
   created with `py -3.12 -m venv .venv` (Windows) or `python3.12 -m venv
   .venv` (Mac/Linux). Python 3.13 and 3.14 are too new for Pillow / torch
