@@ -237,3 +237,5 @@ DOCUMENTATION/RDDS_TFG_Memoria_v1.docx
 ~$*.xlsx
 # Local extraction artefacts
 .memoria_extract.txt
+# Final delivery bundle (memoria docx + slides pdf) — local-only, submit via portal.
+DOCUMENTATION/FINAL_DELIVERY/
