@@ -296,7 +296,7 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 - [x] MongoDB `experiments` has four completed documents with real metrics.
 - [x] MLflow has logged runs.
 - [x] Backblaze has `best.pt`, `last.pt`, `best.onnx`, and `results.csv` for each run.
-- [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
+- [x] `is_production=True` on `run_20260507_231144_yolo11s_retrain` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.493). The Phase 0 100 % baseline `run_20260504_202658_yolo11s` was the original production model; it was later superseded by a one-epoch retrain initialised from that baseline, which the promotion rule accepted on F1 grounds (see Step 7 — retraining).
 
 ---
 
