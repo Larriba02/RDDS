@@ -13,6 +13,17 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
   install. Older versions (3.10, 3.11) may also work but 3.12 is the
   reference.
 - Git
+- **NVIDIA GPU with CUDA 12.4-compatible drivers (strongly recommended).**
+  Training (`train.py`, `retrain.py`) and the CRDDC2022 evaluation
+  (`evaluate.py`) default to `device=0` (first CUDA GPU) and will fail
+  outright with `Invalid CUDA 'device=0' requested` if no GPU is visible.
+  Inference (`predict.py`) and the FastAPI web demo (`src/api`) fall back
+  to CPU automatically, but a single 640-pixel image takes ~3-5 s on CPU
+  versus ~50 ms on GPU. The Streamlit dashboard does not need a GPU.
+  Without CUDA you must pass `--device cpu` to `evaluate.py` / `retrain.py`
+  / `train.py`, accept that a Phase 0 sweep epoch will take 30-60 min
+  instead of 1-2 min, and skip the smoke tests that exercise training
+  (`tests/smoke_step7.py`).
 
   Verify your installation:
   ```
@@ -134,6 +145,37 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
    # Then open http://localhost:8000
    ```
+
+## Troubleshooting
+
+**`setup.py` installed CPU torch on a machine that does have an NVIDIA GPU.**
+`setup.py` decides between `torch+cu124` and `torch` (CPU) based on whether
+`nvidia-smi` runs successfully at install time. If you ran setup before
+installing the NVIDIA drivers, or in a shell where `nvidia-smi` is not on
+PATH, the CPU wheel was installed and any later attempt to train or
+evaluate will fail with `Invalid CUDA 'device=0' requested` or a torch
+DLL load error (`c10.dll`). Verify with:
+```
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+If it prints `+cpu` or `False`, force-reinstall the CUDA wheel:
+```
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+**`Invalid CUDA 'device=0' requested` on a CPU-only machine.**
+Pass `--device cpu` to the script. `evaluate.py`, `train.py` and
+`retrain.py` all accept it. The FastAPI demo and `predict.py` already
+fall back to CPU automatically.
+
+**`/predict` returns 503 / API can't load the production model.**
+`_resolve_checkpoint` downloads `best.pt` from Backblaze B2 when no
+local copy is found in `runs/train/<run_id>/weights/`. The bucket is
+private, so `BACKBLAZE_KEY_ID` and `BACKBLAZE_APP_KEY` must be set in
+`.env`. The same credentials are required for the dashboard's
+`results.csv` fallback. Setup prompts for them; if you skipped, edit
+`.env` manually and restart.
 
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.

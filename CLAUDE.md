@@ -227,3 +227,12 @@ Defined in `.claude/settings.json`.
   `rdds.<cluster-hash>.mongodb.net`), DB user `<db-user>`. The `cluster0`
   default name is *not* what we have.
 - **SAMPLE_RATIO** is set per run, not globally. The `.env` value is a fallback.
+- **CUDA is required for training and evaluation.** `train.py`, `retrain.py`
+  and `evaluate.py` all default to `device=0`. On a machine without a
+  visible NVIDIA GPU (or where torch was installed from the CPU wheel by
+  mistake — happens if `nvidia-smi` was unreachable when `setup.py` ran),
+  these scripts fail immediately with `Invalid CUDA 'device=0' requested`
+  or a torch DLL load error. Workaround: pass `--device cpu` to the
+  script. Inference (`predict.py`) and the FastAPI demo fall back to CPU
+  silently. The README §Troubleshooting documents the diagnose-and-fix
+  recipe (verify with `python -c "import torch; print(torch.cuda.is_available())"`).
