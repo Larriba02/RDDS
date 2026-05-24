@@ -98,9 +98,11 @@ and in the hook in `.claude/settings.json`:
    `git push` until a fresh `code-reviewer` pass is recorded.
 3. **No editing of `.env` or any secret.** Hard-coded in `CLAUDE.md` §2 and
    in every subagent's hard-limits section.
-4. **No starting Phase 1 (A100) jobs.** `training-debugger` may run a
-   1-epoch smoke test on the synthetic mini-dataset. Real Phase 1 runs are
-   `sbatch`-ed by M on the cluster login node.
+4. **No starting Phase 1 (A100) jobs.** Phase 1 / A100 is out of scope for
+   execution in the final deliverable (`scripts/train_cluster.sh` is kept as a
+   design artifact). `training-debugger` may run a 1-epoch smoke test on the
+   synthetic mini-dataset. If Phase 1 were ever executed, real runs would be
+   `sbatch`-ed by M on the cluster login node — never by the AI autonomously.
 5. **No starting unattended Phase 0 runs longer than ~10 minutes** without
    explicit user approval per run.
 6. **No deletion of checkpoints from Backblaze.** Bad runs get
@@ -251,11 +253,15 @@ Phase 0 is the laptop sandbox (see `RDDS_Dev_Steps.md` Step 3). Code authored
 with `step-implementer`, training launched manually by M. `training-debugger`
 used reactively when runs fail or OOM.
 
-### Step 4 — Phase 1 Training (upcoming)
-Cluster smoke test (1 epoch on the mini-dataset) authored and run with
-`step-implementer` and `training-debugger`. Real Phase 1 runs are
-`sbatch`-ed by M on the cluster login node — the AI never queues an A100
-job autonomously.
+### Step 4 — Phase 1 Training (out of scope for the final deliverable)
+Phase 1 / A100 cluster training is **not executed** in the final deliverable.
+The SLURM scripts (`scripts/train_cluster.sh`, `scripts/submit_sweep.sh`) are
+kept in the repo as a documented design artifact, authored with
+`step-implementer`. The YOLO11m main model is trained locally by J on the
+RTX 4060 instead. If Phase 1 were ever executed, the cluster smoke test
+(1 epoch on the mini-dataset) would be run with `training-debugger`, and real
+runs would be `sbatch`-ed by M on the cluster login node — the AI never
+queues an A100 job autonomously.
 
 ### Step 5 — Evaluation (upcoming)
 Metrics scripts authored with `step-implementer`. The 200 qualitative
@@ -265,10 +271,14 @@ qualitative analysis section of the final report.
 ### Step 6 — Inference (upcoming)
 Same pattern as Step 5.
 
-### Step 7 — Retraining (upcoming)
+### Step 7 — Retraining (implemented and smoke-tested; not executed on a real new-data batch)
 `retrain()` authored with `step-implementer`. Smoke-tested with the
-synthetic dataset. The promotion logic is reviewed by `code-reviewer` with
-extra attention to the atomicity guarantee.
+synthetic dataset (`tests/data/tiny_rdd2022/`, 14 images, 1 epoch, end-to-end
+without errors). The promotion logic reviewed by `code-reviewer` — atomicity
+guaranteed by delegating to `maybe_promote()` which uses a MongoDB transaction.
+A full real-data retrain run is out of scope for the final deliverable
+(team-bandwidth and personal-GPU compute reasons); the manually triggered
+fine-tuning design remains the recommended long-term workflow.
 
 ### Step 8 — Web demo (optional, conditional)
 If undertaken, FastAPI scaffolding and frontend boilerplate are obvious AI
@@ -404,6 +414,7 @@ metadata for the development workflow.
 | Date | Change |
 |---|---|
 | 2026-04-25 | Document created. AI configuration scaffolded: `CLAUDE.md`, `.claude/commands/` (4), `.claude/agents/` (5), `.claude/settings.json`, `.claude/hooks/block-push-without-review.py`. Disclaimer added to `README.md`. |
+| 2026-05-23 | Final-deliverable scope sync. Phase 1 / A100 marked as documented but not executed; YOLO11m main model attributed to J on RTX 4060; Step 7 retraining reframed as implemented and smoke-tested rather than executed on real new data. |
 
 This logbook is appended to whenever the AI configuration changes. The goal
 is that the evaluator can read this single section and know exactly what

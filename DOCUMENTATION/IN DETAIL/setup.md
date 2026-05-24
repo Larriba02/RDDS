@@ -137,6 +137,7 @@ creates its own.
 2. Asks for credentials and creates the `.env` file
 3. Configures Ultralytics settings for the project
 4. Verifies that the three core libraries import correctly
+5. Optionally runs `tests/smoke_all.py --steps 1 2` to confirm MongoDB connectivity and the data pipeline end-to-end (prompts for confirmation; safe to skip)
 
 ### Run it
 ```bash
@@ -156,10 +157,11 @@ Per-run subsampling for Phase 0 iterations is passed as `--sample-ratio` to
 `train.py` at run time — do not set this to a value less than 1.0 in `.env`.
 
 ### Why dependencies are pinned
-`requirements.txt` uses `==` for every package. This ensures that the laptop,
-the teammate's machine, and the A100 cluster all use identical library versions.
-Without pinning, `pip install` fetches the latest version available at that
-moment, which can differ between machines and break reproducibility.
+`requirements.txt` uses `==` for every package. This ensures that every machine
+used in the project (M's RTX 4050 laptop, J's RTX 4060, and — in the original
+Phase 1 design — the A100 cluster) uses identical library versions. Without
+pinning, `pip install` fetches the latest version available at that moment,
+which can differ between machines and break reproducibility.
 
 ### Ultralytics configuration
 By default Ultralytics tries to connect to external experiment trackers
@@ -250,8 +252,11 @@ rdds/
 │       ├── mongo.md
 │       ├── data.md
 │       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
 │       ├── inference.md
 │       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx

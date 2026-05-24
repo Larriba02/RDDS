@@ -1,23 +1,51 @@
 # RDDS — Development Steps Reference
 **Road Damage Detection System · Group 3 · UFV**  
-*Version 1.7 — May 2026*
+*Version 2.3 — May 2026*
 
-This document is a step-by-step development guide. It is designed to be pasted into a new conversation as working memory. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
+Step-by-step development guide for the full team. Each step has a clear goal, the files/code to produce, and a done criterion. Steps must be completed in order — do not start a step until the previous one is done and verified.
+
+---
+
+## Project status note (final stretch — 2026-05-23)
+
+Two items that were planned in earlier versions have been **dropped from the
+final deliverable**. The code stays in the repo as a design artifact but is
+**not executed** before submission:
+
+- **Step 4 — Phase 1 / A100 cluster training.** No SLURM runs will be
+  reported. `scripts/train_cluster.sh` and `scripts/submit_sweep.sh` remain
+  in the repository as documented-but-not-executed assets.
+- **Step 7 — Retraining pipeline.** `src/training/retrain.py` was
+  implemented and smoke-tested on the synthetic mini-dataset only. No
+  end-to-end retraining run on real new data will be reported. The
+  pipeline philosophy is unchanged — incremental fine-tuning on freshly
+  ingested road imagery is still the intended long-term workflow. It is
+  out of scope **for execution only**, for two reasons: (a) the team
+  does not have the bandwidth in the remaining timeline, and (b) a real
+  retrain on top of the production weights is too costly on the personal
+  GPUs available (RTX 4050 / RTX 4060) to fit alongside the rest of the
+  work.
+
+The **final reported models** are both trained **locally**:
+
+- **YOLO11s baseline** — M, RTX 4050 laptop, Phase 0 at SAMPLE_RATIO=1.0
+  (`run_20260504_202658_yolo11s`).
+- **YOLO11m main model** — J, RTX 4060. This replaces what was previously
+  the A100 / cluster YOLO11m run.
 
 ---
 
 ## Context Summary
 
 - **Project:** Road damage detection system using deep learning on RDD2022 dataset.
-- **Team:** M (lead), L (MongoDB), J (Training).
-- **Hardware:** RTX 4050 laptop (6GB, Phase 0), RTX 4060 teammate (8GB), A100 cluster (40GB, Phase 1).
-- **Cluster:** SLURM, `sbatch`, Python scripts only, internet access, 50GB local storage per node.
+- **Team:** M (lead — pipeline, data, baseline, evaluation, web demo), L (MongoDB only — schema, indexes, Atlas), J (training of YOLO11m main model on RTX 4060).
+- **Hardware:** RTX 4050 laptop (6GB, M — Phase 0 + baseline + everything else), RTX 4060 (J — YOLO11m main model). The A100 cluster was planned for Phase 1 but is not used in the final deliverable.
 - **Database:** MongoDB Atlas (shared, free tier). URI in `.env`, never in Git.
 - **Weights storage:** Backblaze B2. URLs stored in MongoDB after each run.
 - **Dataset:** RDD2022 (CC BY-SA 4.0). 6 countries, ~47k images, PascalVOC XML annotations.
-- **Architecture:** YOLO11s (baseline) + YOLO11m (main). COCO pretrained weights, fine-tuned.
+- **Architecture:** YOLO11s (baseline, on RTX 4050) + YOLO11m (main, on RTX 4060). COCO pretrained weights, fine-tuned.
 - **Timeline:** ~2 months to final results.
-- **Full pipeline reference:** RDDS_Pipeline.md (v2.0)
+- **Full pipeline reference:** RDDS_Pipeline.md (v2.5)
 - **Claude standing context:** CLAUDE.md (loaded automatically by Claude Code; contains rules, conventions, and resource pointers)
 
 ---
@@ -56,9 +84,13 @@ streamlit>=1.35.0       # dashboard
 plotly>=5.22.0          # dashboard charts
 ```
 
+> **Updated after Step 8:** `requirements.txt` now also includes
+> `fastapi>=0.111.0`, `uvicorn[standard]>=0.29.0`,
+> `python-multipart>=0.0.9` for the optional web demo (`src/api/`), and
+> `httpx>=0.27.0` for the smoke test HTTP client (`tests/smoke_step8.py`).
+
 ### Done criterion — verified ✅
-Any team member can clone the repo, run python setup.py, 
-and the environment is fully configured and verified.
+Any team member can clone the repo, run python setup.py, and the environment is fully configured and verified. At the end of setup, an optional smoke test (Steps 1–2) is offered.
 
 ---
 
@@ -215,10 +247,10 @@ python -m src.data.upload_to_cloud
 
 Phase 0 is **not just a one-off baseline run**. It is the iteration sandbox where M:
 - Trains YOLO11s with growing dataset fractions (`SAMPLE_RATIO=0.10 → 0.25 → 0.50 → 1.00`) to map the F1/mAP-vs-data curve. Each step is either a fresh run from COCO weights or a fine-tune from the previous checkpoint, depending on whether continuing produced gains in the previous fraction.
-- Tunes hyperparameters that are unsafe to discover on the A100 (batch size for OOM, augmentation knobs, LR schedule).
-- Exercises the full retraining workflow (Step 7) end-to-end before it has to run unattended in the cluster.
+- Tunes hyperparameters where consumer-GPU memory pressure forces decisions (batch size for OOM, augmentation knobs, LR schedule).
+- Exercises the full retraining workflow (Step 7) end-to-end on the synthetic mini-dataset (full real-data retraining is out of scope for the final deliverable — see project status note).
 
-The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which Phase 1 (YOLO11m) is measured.
+The formal output of Phase 0 is the **YOLO11s baseline** — the run with `SAMPLE_RATIO=1.0` and the best F1, promoted to `is_production=True` and registered in MongoDB as the baseline against which the **YOLO11m main model on J's RTX 4060** is measured.
 
 ### Configuration (first Phase 0 run — subsequent runs increase --sample-ratio)
 ```
@@ -245,7 +277,7 @@ cls_weight:         from class_distribution.json
   - Writes MongoDB `experiments` doc with status="running" before training starts.
   - Runs Ultralytics YOLO11 training, exports best.onnx, uploads to B2, updates MongoDB with final metrics.
   - Logs to MLflow. Calls `maybe_promote` at the end.
-- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx` to Backblaze B2.
+- [x] `src/training/upload_checkpoint.py` — upload `best.pt`, `last.pt`, `best.onnx`, and `results.csv` to Backblaze B2; URLs (including `checkpoints.results_csv`) are merged into the `experiments` document. Standalone CLI merges URLs into MongoDB by default (use `--no-mongo` to skip).
 - [x] `src/training/promote.py` — compare new model F1 vs current `is_production` model. Promotes only if `F1_new > F1_current + 0.01` (CRDDC2022 protocol — see Appendix A). Uses MongoDB transaction for atomic is_production toggle.
 
 ### Phase 0 results (actual)
@@ -263,17 +295,108 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 - [x] Training completes without errors at all four sample ratios.
 - [x] MongoDB `experiments` has four completed documents with real metrics.
 - [x] MLflow has logged runs.
-- [x] Backblaze has `best.pt`, `last.pt`, and `best.onnx` for each run.
+- [x] Backblaze has `best.pt`, `last.pt`, `best.onnx`, and `results.csv` for each run.
 - [x] `is_production=True` on `run_20260504_202658_yolo11s` (YOLO11s, SAMPLE_RATIO=1.0, F1=0.598).
 
 ---
 
-## ⏳ STEP 4 — Phase 1 Training (A100 Cluster)
+## 🔄 STEP 3.5 — Hyperparameter Search (J, RTX 4060)
 
-**Owner:** M  
-**Goal:** Full-performance training on complete dataset. Final mAP numbers.
+**Owner:** J  
+**Status:** Superseded by YOLO11m local training on RTX 4060.  
+**Goal (original):** Find a YOLO11s hyperparameter configuration that beats the Phase 0 baseline (F1=0.598) before committing A100 time to Phase 1.
 
-### Configuration
+**Update (2026-05-23):** Phase 1 / A100 is out of scope for the final deliverable
+(see project status note above), so the original justification for the YOLO11s
+hyperparameter funnel — *cheap screening before expensive cluster time* — no
+longer applies. J pivoted from screening YOLO11s configs to training the
+**YOLO11m main model directly on the RTX 4060**. The m-on-RTX-4060 result is
+now the project's main reported model and replaces the cluster YOLO11m run.
+
+The funnel protocol below is preserved for reference, since some early Round 1
+screening runs were executed before the pivot.
+
+### Protocol — funnel screening
+
+Run all candidate configs at low sample ratio first. Only promote survivors to higher ratios. This keeps each screening round cheap (~2–3 h per run on RTX 4060).
+
+```
+Round 1  --sample-ratio 0.10   all 4 configs   baseline ref: F1=0.411
+Round 2  --sample-ratio 0.25   top 2 configs   baseline ref: F1=0.501
+Round 3  --sample-ratio 1.00   winner only     baseline ref: F1=0.598
+```
+
+**Gate rule:** a config advances if its F1 at the current ratio is ≥ baseline F1 at that ratio. The final winner at 1.0 must exceed F1=0.608 (baseline + PROMOTE_MARGIN=0.01) to auto-promote.
+
+### Prerequisites (J already has these from Step 2)
+- Dataset downloaded and converted to YOLO format (`RDD_DATA_ROOT` set in `.env`)
+- `logs/splits.json` present
+- MongoDB connected (`MONGO_URI` in `.env`)
+- Backblaze credentials in `.env`
+
+```bash
+git pull origin main
+pip install -r requirements.txt   # pins onnxslim==0.1.34, adds streamlit+plotly
+```
+
+### Round 1 — screening at 10% (~2–3 h each)
+
+Run in order. Each run uploads results to MongoDB automatically — check the dashboard between runs.
+
+```bash
+# Config A: cosine LR schedule (change from linear)
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 40 --batch 16 --patience 12 --lr0 0.01 --lrf 0.01 --cos-lr
+
+# Config B: AdamW optimizer with lower LR
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 40 --batch 16 --patience 12 --lr0 0.001 --lrf 0.1 --optimizer AdamW
+
+# Config C: higher initial LR + cosine + aggressive decay
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 35 --batch 16 --patience 10 --lr0 0.02 --lrf 0.005 --cos-lr
+
+# Config D: quick convergence check (early stop baseline)
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 25 --batch 16 --patience 8 --lr0 0.01 --lrf 0.01 --cos-lr
+```
+
+**After Round 1:** pick the 2 configs with highest F1. If all are below F1=0.411 (Round 1 baseline), report back before continuing.
+
+### Round 2 — top 2 configs at 25%
+
+Replace `--sample-ratio 0.10` with `--sample-ratio 0.25` for the 2 survivors. Gate: F1 ≥ 0.501.
+
+### Round 3 — winner at 100%
+
+Replace `--sample-ratio 0.25` with `--sample-ratio 1.0` for the best config. If F1 > 0.608 the script auto-promotes it to `is_production=True`.
+
+### Monitoring
+
+```bash
+streamlit run src/dashboard.py   # http://localhost:8501
+```
+
+The Overview page shows the F1-vs-data curve updating in real time. The Run Detail page shows per-epoch training curves for any selected run.
+
+### Done when
+- [ ] Round 1 complete — 4 configs at 0.10, best 2 identified.
+- [ ] Round 2 complete — 2 configs at 0.25, winner identified.
+- [ ] Round 3 complete — winner at 1.0, F1 reported back to M.
+- [ ] If F1 > 0.608: auto-promoted to production. ~~If not: proceed to Phase 1 with baseline hyperparams.~~ (Phase 1 out of scope — see status note.)
+
+---
+
+## ⏭️ STEP 4 — Phase 1 Training (A100 Cluster) — OUT OF SCOPE FOR FINAL DELIVERABLE
+
+> **Status banner:** Out of scope for the final deliverable — see project
+> status note at the top of this document. The SLURM scripts
+> (`scripts/train_cluster.sh`, `scripts/submit_sweep.sh`) and the
+> documentation below are kept as a design artifact: they describe how
+> Phase 1 *would* have been run on the A100. **They were not executed.**
+> The YOLO11m main model is instead trained locally by J on the RTX 4060
+> (see Step 3.5 update).
+
+**Owner (original plan):** M  
+**Goal (original plan):** Full-performance training on complete dataset. Final mAP numbers.
+
+### Configuration (documented for reference — not executed)
 ```
 Models:       YOLO11s (confirmed baseline) + YOLO11m (main)
 Dataset:      All 6 countries, SAMPLE_RATIO=1.0
@@ -286,73 +409,256 @@ seed:         42
 ```
 
 ### Tasks
-- [x] `scripts/train_cluster.sh` — sbatch script. Accepts `MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DATA_ROOT`, `SMOKE_TEST` via `--export`. Set `SMOKE_TEST=1` to run on the tiny synthetic dataset instead of `DATA_ROOT`.
+- [x] `scripts/train_cluster.sh` — sbatch script. Accepts `MODEL`, `SAMPLE_RATIO`, `EPOCHS`, `BATCH`, `PATIENCE`, `DATA_ROOT`, `DEVICE`, `CACHE`, `LR0`, `LRF`, `COS_LR`, `OPTIMIZER`, `SMOKE_TEST` via `--export`. Set `SMOKE_TEST=1` to run on the tiny synthetic dataset instead of `DATA_ROOT`.
+- [x] `scripts/submit_sweep.sh` — submits multiple YOLO11m configs as a sequential SLURM dependency chain (afterok). Fill in the `CONFIGS` array with the winners from Step 3.5 before submitting.
 - [ ] **Cluster smoke test** — `sbatch` a 1-epoch run on `tests/data/tiny_rdd2022/` (the synthetic mini-dataset from Step 2). Must finish without SLURM errors, write a sentinel `experiments` doc to MongoDB, and upload a `best.pt` to Backblaze. This validates SLURM, CUDA, network, and the full pipeline on the cluster node before any real job is queued.
 - [ ] Run YOLO11s first (faster, confirms cluster setup works on real data).
 - [ ] Run YOLO11m after YOLO11s completes successfully.
 - [ ] Promote best model via `promote.py`.
 
-### Done when
-- YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.
-- F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.
+### Done when (original — superseded)
+- ~~YOLO11m experiment document in MongoDB with `status: promoted`, `is_production: true`.~~
+- ~~F1 overall (IoU ≥ 0.5, CRDDC2022 protocol) in expected range 0.78–0.86 for YOLO11m on full dataset.~~
+
+### Actual done criterion for the final deliverable
+
+Phase 1 is **not executed**. The equivalent "YOLO11m main model" deliverable is
+produced by J locally on the RTX 4060 (see Step 3.5 update). The MongoDB
+`experiments` document for the production YOLO11m run records `device:
+"RTX 4060"` rather than the A100 cluster.
 
 ---
 
-## ⏳ STEP 5 — Evaluation
+## ✅ STEP 5 — Evaluation — DONE
 
 **Owner:** M  
-**Goal:** Final quantitative and qualitative evaluation on official test split.
+**Status:** Complete  
+**Goal:** Final quantitative evaluation on the validation set + visual inspection on both val and test splits.  
+**Full reference:** `DOCUMENTATION/IN DETAIL/evaluation.md`
+
+### Background — why val, not test
+
+The RDD2022 dataset ships without ground-truth labels for the `test/` images.
+Those images are the official CRDDC2022 competition holdout; labels are kept
+by the organisers and were only used to score challenge submissions (portal
+closed 2022). We therefore report metrics on the **validation set** — the
+fixed held-out 1 000 images/country carved from the training pool, which has
+GT labels. The official test images are used for qualitative inspection only.
+
+```
+RDD2022 train/images/  ──► val   (7 000 images, GT available)  → reported metric
+                       ──► train (31 385 images)
+RDD2022 test/images/   ──► test  (9 035 images, no GT)         → qualitative only
+```
 
 ### Tasks
-- [ ] `src/evaluation/evaluate.py` — mAP@0.5, F1, Precision, Recall per class and globally. IoU=0.5, confidence=0.5.
-- [ ] `src/evaluation/qualitative.py` — 50 images per class (200 total). Save to `outputs/qualitative/`.
-- [ ] Save all metrics to MongoDB `experiments` doc of the production model.
 
-### Done when
-- Metrics computed on 100% of official test split.
-- Per-class breakdown available.
-- 200 qualitative samples saved and inspected.
+- [x] `src/evaluation/evaluate.py`
+  - `--split val` (default): F1, Precision, Recall, mAP@0.5 per class and
+    per country on the validation set. IoU=0.5, conf=0.5.
+    Writes to `experiments.metrics.evaluation_val` in MongoDB.
+  - `--split both`: val metrics + inference summary on test split
+    (detection counts and avg confidence per class; no F1 possible).
+    Writes test summary to `experiments.metrics.evaluation_test`.
+    Saves per-image predictions to `outputs/test_predictions_{run_id}.json`.
+
+- [x] `src/evaluation/qualitative.py`
+  - `--split val` (default): 50 images per damage class from val set.
+    GT boxes in green + model predictions in red. Output: `outputs/qualitative/val/`
+  - `--split test`: 50 images per country from official test split.
+    Predictions only (no GT). Output: `outputs/qualitative/test/`
+  - `--split both`: runs both above.
+
+- [x] **Execute on real data and verify MongoDB writes.**
+
+### Commands
+
+```bash
+# Full quantitative evaluation (val set):
+python -m src.evaluation.evaluate
+
+# Val metrics + test inference summary:
+python -m src.evaluation.evaluate --split both
+
+# Visual samples — val (GT+pred) and test (pred only):
+python -m src.evaluation.qualitative --split both
+```
+
+### Done when — verified ✅
+- [x] `evaluate.py --split both` completes without errors.
+- [x] `experiments.metrics.evaluation_val` written to MongoDB for production model.
+- [x] Per-class and per-country F1 available.
+- [x] `qualitative.py --split both` completes — visual samples inspected.
+- [x] `outputs/qualitative/val/` and `outputs/qualitative/test/` populated.
+
+### Step 5 results (YOLO11s, sample_ratio=1.0, run_20260504_202658)
+- F1 overall: 0.4581 — Precision: 0.8832 — Recall: 0.3093 — mAP@0.5: 0.5960
+- Best country: China_MotorBike (F1=0.663) — Worst: Czech (F1=0.085)
+- Best class: D20 longitudinal (F1=0.551) — Worst: D40 otros (F1=0.282)
+- Test inference: 9,035 images, 29% detection rate
+- Auto-evaluation on promotion implemented in `promote.py`
+- Validation dashboard page added to `src/dashboard.py`
 
 ---
 
-## ⏳ STEP 6 — Inference Module
+## ✅ STEP 6 — Inference Module — DONE
 
 **Owner:** M  
+**Status:** Complete  
 **Goal:** Script that takes an image or folder and produces annotated output + MongoDB write.
 
 ### Tasks
-- [ ] `src/inference/predict.py` — loads `is_production=True` model, outputs annotated images, writes to `predictions` collection.
-- [ ] `src/inference/extract_frames.py` — extract frames from video at 1fps.
+- [x] `src/inference/predict.py` — loads `is_production=True` model, outputs annotated images, writes to `predictions` collection.
+- [x] `src/inference/extract_frames.py` — extract frames from video at 1fps.
 
-### Done when
-- Full video demo workflow works: `video → frames → predict → annotated output`.
+### Commands
+
+```bash
+# Extract frames from a video at 1 fps:
+python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+
+# Run inference on a single image (production model from MongoDB):
+python -m src.inference.predict --source path/to/image.jpg
+
+# Run inference on a folder of images:
+python -m src.inference.predict --source path/to/folder/ --output-dir outputs/predictions/
+
+# Full video → annotated frames workflow:
+python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+python -m src.inference.predict --source outputs/frames/ --output-dir outputs/predictions/
+
+# Local model override (bypass MongoDB B2 download):
+python -m src.inference.predict --source path/to/image.jpg --model runs/train/.../best.pt
+
+# Dry run (skip MongoDB write, still saves annotated images):
+python -m src.inference.predict --source path/to/image.jpg --dry-run
+```
+
+### Done when — verified ✅
+- [x] `extract_frames.py` extracts frames at 1 fps, saves `frame_NNNNNN.jpg`, prints summary.
+- [x] `predict.py` runs inference, saves annotated images with coloured bboxes per class, writes to MongoDB `predictions` collection.
+- [x] Idempotent: duplicate `image_id` + `model_version` pairs are skipped on re-run.
+- [x] Full workflow `video → frames → predict → annotated output` chains without errors.
 
 ---
 
-## ⏳ STEP 7 — Retraining Pipeline
+## ⏭️ STEP 7 — Retraining Pipeline — OUT OF SCOPE FOR FINAL DELIVERABLE
+
+> **Status banner:** Out of scope for the final deliverable — see project
+> status note at the top of this document. `src/training/retrain.py` was
+> implemented and smoke-tested on the synthetic mini-dataset
+> (`tests/data/tiny_rdd2022/`, 14 images, 1 epoch) but the workflow is
+> **not exercised end-to-end on real new data** before submission. The
+> code stays in the repo as a design artifact and full documentation is
+> preserved below.
+>
+> **Why it is out of scope (execution only, not design):** The project's
+> retraining philosophy is unchanged — incremental fine-tuning on newly
+> ingested imagery remains the intended long-term workflow. Two
+> constraints stopped us from running it on real data before the deadline:
+> 1. **Team bandwidth.** No one has the remaining hours to drive a real
+>    retrain through to a promotion-or-regression decision and write it
+>    up alongside the rest of the deliverable.
+> 2. **Compute cost on personal hardware.** A real retrain on top of the
+>    production weights (full mixed training, ~20 epochs, val + B2 upload
+>    + evaluation afterwards) is expensive on the personal GPUs available
+>    (RTX 4050 / RTX 4060) and would crowd out the runs still required
+>    for the final report.
 
 **Owner:** M  
-**Goal:** `retrain()` function that fine-tunes from a checkpoint, evaluates, and promotes if better.
+**Status:** Designed, implemented, and smoke-tested only — no real retraining run reported.  
+**Goal (as designed):** `retrain()` function that fine-tunes from a checkpoint, evaluates, and promotes if better.
 
 ### Tasks
-- [ ] `src/training/retrain.py` — validate, ingest, load checkpoint, fine-tune, evaluate, promote if better.
-- [ ] Test with a small synthetic batch (10–20 images).
-- [ ] Verify `is_production` flips correctly on promotion.
+- [x] `src/training/retrain.py` — validate, ingest, load checkpoint, fine-tune, evaluate, promote if better.
+- [x] Test with a small synthetic batch (tiny_rdd2022, 14 images, 1 epoch).
+- [x] Verified `is_production` flips correctly on promotion (delegated to `promote.maybe_promote` via MongoDB transaction).
 
-### Done when
-- `retrain()` runs end-to-end without errors.
-- Both promoted and non-promoted outcomes correctly logged in MongoDB.
+### Implementation details
+
+``retrain()`` orchestrates the following pipeline (full detail in ``src/training/retrain.py``):
+1. Pre-flight: raises ``EnvironmentError`` if ``RDD_DATA_ROOT`` is not set.
+2. Ingest: calls ``src.data.ingest.ingest`` (idempotent — skips existing image_ids).
+3. Collect new image paths (supports flat dirs and RDD2022-style hierarchy).
+4. Build mixed training list: new images + stratified sample of the original train
+   pool (``--mix-ratio``, default 0.30) queried from MongoDB ``images_metadata``.
+   **Mixed training is always on** to prevent catastrophic forgetting. Pass
+   ``--mix-ratio 0.0`` to disable. Val split uses the fixed val set from
+   ``splits.json`` for meaningful early-stopping signal.
+5. Write ``logs/retrain_images_{run_id}.txt``, ``logs/retrain_mixed_{run_id}.txt``,
+   ``logs/retrain_val_{run_id}.txt``, ``logs/retrain_data_{run_id}.yaml``.
+6. Insert MongoDB experiments doc with ``status="running"`` + SIGTERM handler.
+7. Fine-tune via Ultralytics ``YOLO.train()`` from the production ``best.pt``.
+   Optional knobs: ``--lr0``, ``--lrf``, ``--cos-lr``, ``--optimizer``, ``--freeze``.
+8. Extract training-time metrics from ``results.csv``, update MongoDB.
+9. Export ``best.pt`` → ``best.onnx`` in a subprocess (crash-safe).
+10. Upload to Backblaze B2 via ``upload_checkpoint.upload_checkpoints``.
+11. Evaluate on the fixed val set via ``evaluate.evaluate``, then call
+    ``maybe_promote`` with CRDDC2022 F1.
+
+Checkpoint resolution order: ``--model`` flag → ``runs/train/<run_id>/weights/best.pt`` → fuzzy match → B2 download.  
+run_id format: ``run_YYYYMMDD_HHMMSS_{model}_retrain``.
+
+### Commands
+
+```bash
+# Standard retrain (mixed training on — 30% of original train replayed by default)
+python -m src.training.retrain --new-images path/to/new_images/ --epochs 20 --batch 8 --patience 10
+
+# Conservative fine-tune: freeze backbone, low LR, cosine decay, AdamW
+python -m src.training.retrain --new-images path/to/new_images/ --freeze 10 --lr0 0.001 --lrf 0.01 --cos-lr --optimizer AdamW
+
+# Disable mixed training (new images only — not recommended)
+python -m src.training.retrain --new-images path/to/new_images/ --mix-ratio 0.0
+
+# With local model override (bypass B2 download)
+python -m src.training.retrain --new-images path/to/new_images/ --model runs/train/myrun/weights/best.pt
+
+# Smoke test (tiny dataset, 1 epoch, skip upload and promotion)
+python -m src.training.retrain --new-images tests/data/tiny_rdd2022/ --epochs 1 --batch 2 --patience 1 --skip-upload --skip-promote
+```
+
+### Done criteria for the final deliverable
+
+The retraining workflow is **out of scope** for the final report. The code
+exists, the smoke test passes, but the pipeline is not exercised on real
+new data. Specifically:
+
+- [x] `retrain()` runs end-to-end on the synthetic mini-dataset only (smoke test: 14 images, 1 epoch, `run_20260507_231144_yolo11s_retrain`).
+- [x] MongoDB writes during the smoke run behave as designed (`status="running"` → `status="completed"`); `maybe_promote` returned `"completed"` (no promotion, as expected on tiny data).
+- [x] B2 upload and ONNX export wired up and exercised by the smoke run.
+- [x] Mixed training logic combines new + original (smoke test: 14 new + 1568 original = 1582 total).
+- [ ] **Not executed:** a real retraining run on a fresh batch of road images, with a promoted/regressed outcome reported to MongoDB and a final F1 comparison against the baseline.
+- [ ] **Not executed:** end-to-end exercise of the fine-tuning knobs (`--lr0`, `--lrf`, `--cos-lr`, `--optimizer`, `--freeze`) in a real promoted run.
 
 ---
 
-## ⏳ STEP 8 — Optional: Web Demo
+## ✅ STEP 8 — Optional: Web Demo — DONE
 
 **Owner:** M (AI-assisted)  
 **Condition:** Only if Steps 3–7 are complete and time allows.
 
 ### Tasks
-- [ ] `src/api/main.py` — FastAPI: `POST /predict`, `GET /model`.
-- [ ] Frontend: single page, upload image/video, display annotated result.
+- [x] `src/api/__init__.py` — empty package marker.
+- [x] `src/api/main.py` — FastAPI app. Routes:
+  - `GET /` — serves `src/api/static/index.html` (single-page frontend).
+  - `GET /model` — returns current production model metadata (run_id, model, F1, mAP50, sample_ratio, timestamp).
+  - `POST /predict` — accepts an image upload (jpg/png), runs YOLO inference, returns JSON detections + base64-encoded annotated image. Writes one document to MongoDB `predictions` (non-fatal on failure).
+- [x] `src/api/static/index.html` — drag-and-drop single-page frontend: uploads image, renders annotated result, shows detections table and model-info card.
+
+### Commands
+
+```bash
+# Start the API server (development — auto-reload on file changes)
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+# Then open http://localhost:8000
+```
+
+### Done when — verified ✅
+- [x] `GET /` serves the frontend without errors.
+- [x] `GET /model` returns production model metadata from MongoDB.
+- [x] `POST /predict` returns detections and annotated image for a test upload.
+- [x] MongoDB `predictions` collection receives one document per API call.
 
 ---
 
@@ -383,8 +689,11 @@ rdds/
 │       ├── mongo.md
 │       ├── data.md
 │       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
 │       ├── inference.md
 │       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md   # Claude Code / AI usage in this project
 ├── FOLLOW-UP/
 │   └── Follow-up_Template.docx
@@ -413,11 +722,21 @@ rdds/
 │   ├── inference/
 │   │   ├── predict.py
 │   │   └── extract_frames.py
-│   └── api/               # optional
-│       └── main.py
+│   └── api/               # optional web demo (Step 8)
+│       ├── __init__.py
+│       ├── main.py
+│       └── static/
+│           └── index.html
 ├── scripts/
-│   └── train_cluster.sh
+│   ├── train_cluster.sh          # single-job SLURM wrapper
+│   └── submit_sweep.sh           # sequential multi-config sweep via SLURM dependency chain
 ├── tests/
+│   ├── smoke_step2.py       # Step 2 data pipeline smoke test
+│   ├── smoke_step5.py       # Step 5 evaluation smoke test
+│   ├── smoke_step6.py       # Step 6 inference smoke test
+│   ├── smoke_step7.py       # Step 7 retraining smoke test
+│   ├── smoke_step8.py       # Step 8 web demo smoke test
+│   ├── smoke_all.py         # Orchestrator: run selected steps (--steps 1 2 …)
 │   └── data/
 │       └── tiny_rdd2022/    # 5 imgs × 2 countries × 4 classes (Step 2 + Step 4 smoke test)
 ├── logs/
@@ -427,8 +746,7 @@ rdds/
 │   ├── commands/             # /smoke-test, /review-pr, /sync-docs, /debug-mongo
 │   ├── agents/               # code-reviewer, mongo-debugger, training-debugger,
 │   │                         # doc-syncer, step-implementer
-│   ├── hooks/                # block-push-without-review.py
-│   └── settings.json
+│   └── settings.json         # hooks (block-push-without-review PreToolUse)
 ├── setup.py
 ├── .env.example
 ├── .gitignore

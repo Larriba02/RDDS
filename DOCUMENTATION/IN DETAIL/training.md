@@ -1,6 +1,14 @@
 # RDDS — Training Module (IN DETAIL)
 **Road Damage Detection System · Group 3 · UFV**
-*Version 1.2 — May 2026*
+*Version 1.4 — May 2026*
+
+> **Scope note (final deliverable):** Phase 1 / A100 cluster training is
+> **out of scope for execution**. The two-phase design (laptop sandbox + A100
+> cluster) is preserved as a documented architecture, but no SLURM run is
+> reported. The YOLO11m main model is trained locally by J on the RTX 4060.
+> Cluster-specific commands and flag presets below describe the original
+> SLURM-based design; on RTX 4060, J uses local batch sizes that fit 8 GB VRAM
+> (see `RDDS_Pipeline.md` for the local hardware profile).
 
 This document describes the implementation of the Step 3 training pipeline:
 `src/training/train.py`, `src/training/upload_checkpoint.py`, and
@@ -24,12 +32,12 @@ python -m src.training.train \
     --batch 8 \
     --patience 15
 
-# Phase 1 — cluster, full dataset
+# YOLO11m main model — J, RTX 4060 (replaces planned Phase 1 / A100 run)
 python -m src.training.train \
     --model yolo11m \
     --sample-ratio 1.0 \
     --epochs 100 \
-    --batch 32 \
+    --batch 16 \
     --patience 20
 
 # Smoke test (skip B2 upload and promotion)
@@ -72,10 +80,11 @@ python -m src.training.train \
      Ultralytics training to force a relative local path. Without this,
      Ultralytics' built-in MLflow callback can receive a bare Windows absolute
      path (e.g. `C:\…\runs\train`) that MLflow rejects as an invalid URI.
-   - A `SIGTERM` signal handler is installed. When SLURM's wall-clock limit
-     kills the job, the handler sets `status="interrupted"` in MongoDB before
-     the process exits, so the experiment record is never left stuck in
-     `"running"` state.
+   - A `SIGTERM` signal handler is installed. On SIGTERM (e.g. a manual
+     `kill` on a local run, or — in the original Phase 1 design — a SLURM
+     wall-clock kill), the handler sets `status="interrupted"` in MongoDB
+     before the process exits, so the experiment record is never left stuck
+     in `"running"` state.
 10. **Run Ultralytics training** — `YOLO(model).train(data=..., seed=42, ...)`.
     On failure, sets `status="failed"` in MongoDB and re-raises.
 11. **Extract metrics** — reads `runs/train/{run_id}/results.csv`. Computes F1
@@ -95,7 +104,10 @@ python -m src.training.train \
     `./mlruns/` (per-machine, not shared).
 16. **Promote** — calls `maybe_promote(run_id, f1)` if F1 is available.
     Skipped if `--skip-promote` is set or if F1 is None (no detections on
-    tiny datasets).
+    tiny datasets). On successful promotion, `maybe_promote` automatically
+    calls `evaluate()` for the newly promoted run (non-fatal: a warning is
+    printed if evaluation fails but the promotion itself is not rolled back).
+    See `DOCUMENTATION/IN DETAIL/dashboard.md §4`.
 
 ### Prerequisites
 
@@ -111,17 +123,28 @@ python -m src.training.train \
 ## 2. `src/training/upload_checkpoint.py`
 
 Uploads `best.pt`, `last.pt`, and `best.onnx` from `runs/train/{run_id}/weights/`
-to Backblaze B2 under the prefix `checkpoints/{run_id}/`.
+plus the per-epoch training curves `results.csv` from `runs/train/{run_id}/`
+to Backblaze B2 under the prefix `checkpoints/{run_id}/`. The `.pt`/`.onnx`
+files are uploaded as `application/octet-stream`; `results.csv` is uploaded
+as `text/csv` so the dashboard can fetch it directly.
 
-Returns a dict `{"best_pt": url, "last_pt": url, "best_onnx": url}` which is
-stored in the `experiments` MongoDB document under `checkpoints`.
+Returns a dict `{"best_pt": url, "last_pt": url, "best_onnx": url, "results_csv": url}`
+which is stored in the `experiments` MongoDB document under `checkpoints`.
+A key is omitted if the corresponding file was not found on disk.
 
 Raises `RuntimeError` if any file fails to upload. Missing files (e.g. `best.onnx`
 when export failed) are skipped with a warning, not an error.
 
+When invoked as a standalone CLI, the script merges the returned URLs into the
+`experiments` document in MongoDB by default (only the keys actually uploaded
+are `$set`, so it never overwrites a previously-uploaded artefact). Pass
+`--no-mongo` to skip the MongoDB update and only re-upload the files.
+
 The boto3 client is configured with `connect_timeout=30 s` and
 `read_timeout=300 s` to tolerate slow B2 connections when uploading large
-`.pt` files from the cluster. These values are hardcoded in the private
+`.pt` files (e.g. over a residential link from the RTX 4050 / RTX 4060, or —
+in the original Phase 1 design — from the A100 cluster). These values are
+hardcoded in the private
 `_b2_client()` helper and do not need to be set in `.env`.
 
 Environment variables required:
@@ -185,4 +208,112 @@ python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
 | best.onnx | `runs/train/{run_id}/weights/best.onnx` |
 | MongoDB doc | `rdds.experiments` collection, `run_id` field |
 | MLflow run | `./mlruns/` (local only) |
-| B2 checkpoints | `checkpoints/{run_id}/best.pt` etc. |
+| B2 checkpoints | `checkpoints/{run_id}/{best.pt,last.pt,best.onnx,results.csv}` |
+
+---
+
+## 6. CLI reference
+
+### `python -m src.training.train` — Full training cycle (Phase 0 baseline / YOLO11m main)
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--model` | `yolo11s` \| `yolo11m` \| `yolo11l` \| `yolo11x` | `yolo11s` | Ultralytics model variant to train | `yolo11s` for the M / RTX 4050 baseline; `yolo11m` for J's RTX 4060 main model |
+| `--sample-ratio` | `float` (0.0–1.0) | `SAMPLE_RATIO` from `.env` | Fraction of training images to use, sampled per country | Phase 0 progression: `0.10` → `0.25` → `0.50` → `1.0` |
+| `--epochs` | `int` | `50` | Maximum training epochs | Phase 0 sweep: `50`; final YOLO11m main run: `100` |
+| `--batch` | `int` | `8` | Batch size | Match to GPU VRAM: `8` for RTX 4050 6 GB; `16` for RTX 4060 8 GB. (`32` is the A100 preset retained from the original Phase 1 design.) |
+| `--patience` | `int` | `15` | Early-stopping patience (epochs without mAP improvement) | Phase 0 baseline: `15`; final YOLO11m main run: `20` |
+| `--imgsz` | `int` | `640` | Input image size in pixels | Keep at `640` (RDD2022 standard); change only with explicit justification |
+| `--no-amp` | flag | off (AMP enabled) | Disable FP16 mixed-precision training | Pass if you see AMP-related NaN losses; otherwise leave AMP on |
+| `--lr0` | `float` | `0.01` | Initial learning rate | Lower to `0.001` for fine-tuning; keep default for full training from scratch |
+| `--lrf` | `float` | `0.01` | Final LR as a fraction of `lr0` (LR decays from `lr0` to `lr0 * lrf`) | Increase to `0.1` for a more gradual decay schedule |
+| `--cos-lr` | flag | off (linear decay) | Use cosine learning rate schedule instead of linear | Enable for longer full-dataset runs where a warmup-then-decay cycle helps |
+| `--optimizer` | `auto` \| `SGD` \| `Adam` \| `AdamW` \| `NAdam` \| `RAdam` \| `RMSProp` | `auto` | Optimizer (Ultralytics selects SGD for YOLO when `auto`) | Keep `auto`; switch to `AdamW` only for experimental runs |
+| `--cache` | `False` \| `ram` \| `disk` | `False` | Cache images to speed up training | `ram` if you have ≥16 GB RAM and a small dataset fraction; `disk` on machines with fast local storage (originally intended for the A100 cluster) |
+| `--workers` | `int` | `8` | Data-loading worker threads | Lower to `4` on Windows if DataLoader errors appear; keep `8` on Linux |
+| `--device` | `str` | `"0"` | CUDA device(s): `"0"` for single GPU, `"0,1,2,3"` for multi-GPU DDP | Match to available hardware; Ultralytics handles DDP spawning internally |
+| `--skip-upload` | flag | off | Skip Backblaze B2 checkpoint upload | Use for local smoke tests without real B2 credentials |
+| `--skip-promote` | flag | off | Skip the promotion check after training | Use for local testing where promotion should not happen |
+
+#### Full example
+
+```powershell
+# Windows — full-dataset run (original Phase 1 / A100 preset, kept as a documented template)
+python -m src.training.train `
+    --model yolo11m `
+    --sample-ratio 1.0 `
+    --epochs 100 `
+    --batch 32 `
+    --patience 20 `
+    --lr0 0.01 `
+    --lrf 0.01 `
+    --cos-lr `
+    --optimizer auto `
+    --cache disk `
+    --workers 8 `
+    --device 0
+```
+```bash
+# macOS / Linux — full-dataset run (original Phase 1 / A100 preset, kept as a documented template)
+python -m src.training.train \
+    --model yolo11m \
+    --sample-ratio 1.0 \
+    --epochs 100 \
+    --batch 32 \
+    --patience 20 \
+    --lr0 0.01 \
+    --lrf 0.01 \
+    --cos-lr \
+    --optimizer auto \
+    --cache disk \
+    --workers 8 \
+    --device 0
+```
+
+---
+
+### `python -m src.training.promote` — Manually promote a run to production
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+python -m src.training.promote --run-id run_20260310_001_yolo11s --f1 0.74
+```
+
+#### Flags
+
+| Flag | Type / Options | Default | Effect | When to use |
+|------|---------------|---------|--------|-------------|
+| `--run-id` | `str` | (required) | `run_id` of the candidate experiment in MongoDB | The exact `run_id` printed at the start of `train.py` output |
+| `--f1` | `float` | (required) | Overall F1 score (IoU ≥ 0.5) to compare against the current production model | Pass the CRDDC2022 F1 from `evaluate.py` output, not the training-time F1 |
+
+#### Full example
+
+```powershell
+# Windows
+python -m src.training.promote --run-id run_20260504_202658_yolo11s --f1 0.7412
+```
+```bash
+# macOS / Linux
+python -m src.training.promote --run-id run_20260504_202658_yolo11s --f1 0.7412
+```

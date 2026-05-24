@@ -14,12 +14,21 @@ Run:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+# Ensure repo root is on sys.path so `src.*` imports work regardless of CWD.
+_REPO_ROOT = Path(__file__).parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import io
 
 import mlflow
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
@@ -33,7 +42,6 @@ from src.db.connection import get_db  # noqa: E402
 # Config
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).parents[1]
 RUNS_DIR = _REPO_ROOT / "runs" / "train"
 MLFLOW_URI = (_REPO_ROOT / "mlruns").resolve().as_uri()
 CLASS_NAMES = ["D00", "D10", "D20", "D40"]
@@ -106,14 +114,46 @@ def load_experiments() -> pd.DataFrame:
     return df.sort_values("timestamp", ascending=False).reset_index(drop=True)
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_validation_results() -> list[dict]:
+    try:
+        db = get_db()
+    except Exception:
+        return []
+    return list(
+        db["experiments"].find(
+            {"metrics.evaluation_val": {"$exists": True}},
+            {
+                "_id": 0,
+                "run_id": 1,
+                "model": 1,
+                "sample_ratio": 1,
+                "is_production": 1,
+                "status": 1,
+                "metrics.evaluation_val": 1,
+            },
+        )
+    )
+
+
 @st.cache_data(ttl=60, show_spinner=False)
-def load_results_csv(run_id: str) -> pd.DataFrame | None:
+def load_results_csv(run_id: str, b2_url: str | None = None) -> pd.DataFrame | None:
     csv_path = RUNS_DIR / run_id / "results.csv"
-    if not csv_path.exists():
-        return None
-    df = pd.read_csv(csv_path)
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    if csv_path.exists():
+        df = pd.read_csv(csv_path)
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    if b2_url:
+        try:
+            resp = requests.get(b2_url, timeout=10)
+            resp.raise_for_status()
+            df = pd.read_csv(io.StringIO(resp.text))
+        except Exception as exc:
+            st.warning(f"Could not fetch results.csv from B2: {exc}")
+            return None
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    return None
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -166,11 +206,11 @@ with st.sidebar:
     st.caption("Road Damage Detection System")
     page = st.radio(
         "Navigate",
-        ["Overview", "Experiments", "Run Detail", "MLflow"],
+        ["Overview", "Experiments", "Validation", "Run Detail", "MLflow"],
         label_visibility="collapsed",
     )
     st.divider()
-    if st.button("Refresh data", use_container_width=True):
+    if st.button("Refresh data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
 
@@ -215,9 +255,9 @@ if page == "Overview":
             hp = prod["hyperparams"]
             if hp:
                 hp_df = pd.DataFrame(
-                    [{"param": k, "value": v} for k, v in hp.items()]
+                    [{"param": str(k), "value": str(v)} for k, v in hp.items()]
                 )
-                st.dataframe(hp_df, use_container_width=True, hide_index=True)
+                st.dataframe(hp_df, width="stretch", hide_index=True)
             else:
                 st.write("No hyperparameter data.")
     else:
@@ -258,7 +298,7 @@ if page == "Overview":
                 yshift=14,
                 font_size=12,
             )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("No completed runs with F1 data yet.")
 
@@ -307,7 +347,7 @@ elif page == "Experiments":
 
     st.dataframe(
         df_view[display_cols],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "is_production": st.column_config.CheckboxColumn("Prod"),
@@ -346,7 +386,7 @@ elif page == "Experiments":
                 line_color="gold",
                 annotation_text="production",
             )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # mAP50 vs F1 scatter
     df_scatter = df_view[df_view["F1"].notna() & df_view["mAP50"].notna()]
@@ -361,7 +401,130 @@ elif page == "Experiments":
             title="mAP@0.5 vs F1",
         )
         fig2.update_layout(xaxis_range=[0, 1], yaxis_range=[0, 1], height=350)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
+
+# ---------------------------------------------------------------------------
+# Page: Validation
+# ---------------------------------------------------------------------------
+
+elif page == "Validation":
+    st.title("Validation Results")
+    st.caption("CRDDC2022 protocol — F1 @ IoU ≥ 0.5, fixed validation set (1 000 images/country)")
+
+    val_docs = load_validation_results()
+    if not val_docs:
+        st.warning("No evaluation results found. Run `python -m src.evaluation.evaluate` first.")
+        st.stop()
+
+    COUNTRIES = ["China_Drone", "China_MotorBike", "Czech", "India", "Japan", "Norway", "United_States"]
+
+    run_labels = []
+    for doc in val_docs:
+        label = doc["run_id"]
+        if doc.get("is_production"):
+            label += " ★"
+        run_labels.append(label)
+
+    label_to_doc = dict(zip(run_labels, val_docs))
+
+    selected_labels = st.multiselect("Runs to compare", run_labels, default=run_labels)
+    if not selected_labels:
+        st.info("Select at least one run.")
+        st.stop()
+
+    selected_docs = [label_to_doc[lbl] for lbl in selected_labels]
+
+    # Summary table
+    st.subheader("Summary")
+    summary_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        ev = doc["metrics"]["evaluation_val"]
+        row = {
+            "Run": label,
+            "Model": doc.get("model", ""),
+            "Sample ratio": doc.get("sample_ratio"),
+            "F1 overall": ev.get("F1_overall"),
+            "Precision": ev.get("precision_overall"),
+            "Recall": ev.get("recall_overall"),
+            "mAP@0.5": ev.get("mAP50_overall"),
+        }
+        for c in COUNTRIES:
+            row[c] = ev.get("F1_per_country", {}).get(c)
+        summary_rows.append(row)
+
+    df_summary = pd.DataFrame(summary_rows)
+    fmt_cols = ["F1 overall", "Precision", "Recall", "mAP@0.5"] + COUNTRIES
+    for col in fmt_cols:
+        if col in df_summary.columns:
+            df_summary[col] = df_summary[col].apply(
+                lambda v: round(v, 4) if v is not None and not pd.isna(v) else None
+            )
+    st.dataframe(
+        df_summary,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Sample ratio": st.column_config.NumberColumn("Sample ratio", format="%.2f"),
+            **{c: st.column_config.NumberColumn(c, format="%.4f") for c in fmt_cols},
+        },
+    )
+
+    st.divider()
+
+    # F1 per country
+    st.subheader("F1 per country")
+    country_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        for country, f1 in doc["metrics"]["evaluation_val"].get("F1_per_country", {}).items():
+            country_rows.append({"Run": label, "Country": country, "F1": f1})
+
+    if country_rows:
+        fig_country = px.bar(
+            pd.DataFrame(country_rows),
+            x="Country", y="F1", color="Run", barmode="group",
+            title="F1 per country", height=400,
+        )
+        fig_country.update_layout(yaxis_range=[0, 1], xaxis_title=None)
+        st.plotly_chart(fig_country, width="stretch")
+
+    st.divider()
+
+    # F1 per class
+    st.subheader("F1 per damage class")
+    class_rows = []
+    for doc, label in zip(selected_docs, selected_labels):
+        for cls, f1 in doc["metrics"]["evaluation_val"].get("F1_per_class", {}).items():
+            class_rows.append({"Run": label, "Class": cls, "F1": f1})
+
+    if class_rows:
+        fig_class = px.bar(
+            pd.DataFrame(class_rows),
+            x="Class", y="F1", color="Run", barmode="group",
+            title="F1 per class  (D00=longitudinal crack, D10=transverse crack, D20=alligator crack, D40=pothole)",
+            height=380,
+        )
+        fig_class.update_layout(yaxis_range=[0, 1], xaxis_title=None)
+        st.plotly_chart(fig_class, width="stretch")
+    else:
+        st.info("No per-class F1 data available.")
+
+    # Overall comparison (only meaningful with multiple runs)
+    if len(selected_docs) > 1:
+        st.divider()
+        st.subheader("F1 overall comparison")
+        overall_rows = [
+            {"Run": label, "F1": doc["metrics"]["evaluation_val"].get("F1_overall", 0)}
+            for doc, label in zip(selected_docs, selected_labels)
+        ]
+        df_overall = pd.DataFrame(overall_rows).sort_values("F1", ascending=True)
+        fig_overall = px.bar(
+            df_overall, x="F1", y="Run", orientation="h",
+            title="F1 overall (CRDDC2022)",
+            height=max(250, len(df_overall) * 45),
+        )
+        fig_overall.update_layout(xaxis_range=[0, 1], yaxis_title=None)
+        st.plotly_chart(fig_overall, width="stretch")
+
 
 # ---------------------------------------------------------------------------
 # Page: Run Detail
@@ -412,10 +575,14 @@ elif page == "Run Detail":
 
     # Training curves from results.csv
     st.subheader("Training curves")
-    df_csv = load_results_csv(selected_run)
+    results_url = (run_row.get("checkpoints") or {}).get("results_csv")
+    df_csv = load_results_csv(selected_run, results_url)
 
     if df_csv is None:
-        st.info(f"No results.csv found at runs/train/{selected_run}/results.csv")
+        st.info(
+            f"No results.csv available for {selected_run} "
+            f"(checked runs/train/{selected_run}/results.csv and B2)."
+        )
     else:
         # Map readable names
         col_map = {
@@ -433,6 +600,14 @@ elif page == "Run Detail":
         }
         df_csv = df_csv.rename(columns={k: v for k, v in col_map.items() if k in df_csv.columns})
 
+        if len(df_csv) < 2:
+            st.warning(
+                f"This run only has {len(df_csv)} epoch recorded — curves render "
+                "as a single marker. Useful for verifying that training started, "
+                "but not for tracking convergence."
+            )
+        _curve_mode = "lines+markers" if len(df_csv) >= 2 else "markers"
+
         tab1, tab2, tab3 = st.tabs(["Metrics", "Losses", "Learning rate"])
 
         with tab1:
@@ -440,7 +615,7 @@ elif page == "Run Detail":
             if metric_cols and "Epoch" in df_csv.columns:
                 fig = go.Figure()
                 for col in metric_cols:
-                    fig.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"))
+                    fig.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode))
                 fig.update_layout(
                     title="Val metrics per epoch",
                     xaxis_title="Epoch",
@@ -449,7 +624,7 @@ elif page == "Run Detail":
                     height=380,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
         with tab2:
             loss_cols_train = [c for c in ["Train box loss", "Train cls loss", "Train dfl loss"] if c in df_csv.columns]
@@ -457,25 +632,25 @@ elif page == "Run Detail":
             if (loss_cols_train or loss_cols_val) and "Epoch" in df_csv.columns:
                 fig2 = make_subplots(rows=1, cols=2, subplot_titles=("Train losses", "Val losses"))
                 for col in loss_cols_train:
-                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"), row=1, col=1)
+                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode), row=1, col=1)
                 for col in loss_cols_val:
-                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"), row=1, col=2)
+                    fig2.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode), row=1, col=2)
                 fig2.update_layout(height=380, legend=dict(orientation="h", yanchor="bottom", y=1.02))
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
 
         with tab3:
             lr_cols = [c for c in df_csv.columns if c.startswith("lr/")]
             if lr_cols and "Epoch" in df_csv.columns:
                 fig3 = go.Figure()
                 for col in lr_cols:
-                    fig3.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode="lines"))
+                    fig3.add_trace(go.Scatter(x=df_csv["Epoch"], y=df_csv[col], name=col, mode=_curve_mode))
                 fig3.update_layout(title="Learning rate schedule", xaxis_title="Epoch", height=300)
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width="stretch")
             else:
                 st.info("No learning rate data in results.csv.")
 
         with st.expander("Raw results.csv", expanded=False):
-            st.dataframe(df_csv, use_container_width=True, hide_index=True)
+            st.dataframe(df_csv, width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------------------
 # Page: MLflow
@@ -498,7 +673,7 @@ elif page == "MLflow":
     display_mlflow = df_mlflow[["run_name", "experiment", "status"]].copy()
     for col in ["params", "metrics"]:
         display_mlflow[col] = df_mlflow[col].apply(lambda d: ", ".join(f"{k}={v}" for k, v in d.items()) if d else "")
-    st.dataframe(display_mlflow, use_container_width=True, hide_index=True)
+    st.dataframe(display_mlflow, width="stretch", hide_index=True)
 
     st.divider()
 
@@ -520,7 +695,7 @@ elif page == "MLflow":
             st.dataframe(
                 pd.DataFrame([{"param": k, "value": v} for k, v in row["params"].items()]),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
     with col_m:
         st.markdown("**Metrics**")
@@ -528,7 +703,7 @@ elif page == "MLflow":
             st.dataframe(
                 pd.DataFrame([{"metric": k, "value": v} for k, v in row["metrics"].items()]),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
 
     st.divider()

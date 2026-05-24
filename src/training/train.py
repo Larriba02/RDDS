@@ -476,6 +476,7 @@ def train(
     optimizer: str = "auto",
     cache: str | bool = False,
     workers: int = 8,
+    device: str = "0",
     skip_upload: bool = False,
     skip_promote: bool = False,
 ) -> str:
@@ -490,6 +491,10 @@ def train(
         patience: Early-stopping patience (epochs without mAP improvement).
         imgsz: Input image size in pixels.
         amp: Enable FP16 mixed-precision training.
+        device: CUDA device string passed directly to Ultralytics.
+            Single GPU: ``"0"``.  Multi-GPU DDP: ``"0,1,2,3"``.
+            Ultralytics spawns DDP workers internally — this script always
+            runs once regardless of how many devices are specified.
         skip_upload: If True, skip B2 upload (useful for smoke tests without
             real B2 credentials).
         skip_promote: If True, skip the promotion step (useful for testing).
@@ -598,6 +603,7 @@ def train(
         "optimizer": optimizer,
         "cache": str(cache),
         "workers": workers,
+        "device": device,
         "cls_weight": cls_weights,
         "_countries": countries,  # popped inside _write_initial_mongo_doc
     }
@@ -635,6 +641,7 @@ def train(
         "optimizer": optimizer,
         "cache": cache,
         "workers": workers,
+        "device": device,
         "seed": RANDOM_SEED,
         "project": project_dir,
         "name": run_id,
@@ -701,6 +708,7 @@ def train(
                 "optimizer": optimizer,
                 "cache": str(cache),
                 "workers": workers,
+                "device": device,
                 "cls_weight": cls_weights,
             },
         },
@@ -908,6 +916,16 @@ def _parse_args() -> argparse.Namespace:
         help="Number of data-loading worker threads (default: 8).",
     )
     parser.add_argument(
+        "--device",
+        default="0",
+        help=(
+            "CUDA device(s) to use. Single GPU: '0'. "
+            "Multi-GPU DDP: '0,1,2,3'. "
+            "Ultralytics handles DDP internally — this script always runs once. "
+            "(default: '0')"
+        ),
+    )
+    parser.add_argument(
         "--skip-upload",
         action="store_true",
         help="Skip Backblaze B2 upload (for local testing).",
@@ -946,6 +964,7 @@ if __name__ == "__main__":
         optimizer=args.optimizer,
         cache=cache_val,
         workers=args.workers,
+        device=args.device,
         skip_upload=args.skip_upload,
         skip_promote=args.skip_promote,
     )

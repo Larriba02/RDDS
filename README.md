@@ -56,6 +56,7 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    - Ask for your credentials and create your `.env` file (UTF-8)
    - Configure Ultralytics for the project
    - Verify the installation and report whether CUDA is available
+   - Offer to run a quick smoke test (Steps 1–2) to verify MongoDB and the data pipeline end-to-end
 
 4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
 
@@ -113,6 +114,27 @@ End-to-end road damage detection pipeline using deep learning on the RDD2022 dat
    python -m src.training.train --model yolo11s --sample-ratio 1.0 --epochs 1 --batch 2 --skip-upload --skip-promote
    ```
 
+8. Inference (Step 6)
+   ```
+   # Extract frames from a video at 1 fps:
+   python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
+
+   # Predict on a single image (uses production model from MongoDB):
+   python -m src.inference.predict --source path/to/image.jpg
+
+   # Predict on a folder (e.g. extracted frames):
+   python -m src.inference.predict --source outputs/frames/ --output-dir outputs/predictions/
+
+   # Use a local .pt file instead of downloading from B2:
+   python -m src.inference.predict --source path/to/image.jpg --model runs/train/.../best.pt
+   ```
+
+9. Web demo (Step 8 — optional)
+   ```
+   uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+   # Then open http://localhost:8000
+   ```
+
 ## No credentials yet?
 Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
 In the meantime you can still clone the repo, set up the environment,
@@ -130,7 +152,15 @@ and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
 - DOCUMENTATION/RDDS_Dev_Steps.md — step-by-step development guide
 - DOCUMENTATION/RDDS_Pipeline.md — full pipeline reference
 - DOCUMENTATION/IN DETAIL/ — detailed guides for each pipeline stage
-- DOCUMENTATION/IN DETAIL/ai_assistance.md — AI tooling policy and configuration
+  - [dashboard.md](DOCUMENTATION/IN%20DETAIL/dashboard.md) — experiment tracking dashboard and validation results viewer
+  - [evaluation.md](DOCUMENTATION/IN%20DETAIL/evaluation.md) — CRDDC2022 evaluation protocol, dataset splits, reported metrics
+  - [inference.md](DOCUMENTATION/IN%20DETAIL/inference.md) — inference module: extract_frames, predict, video workflow
+  - [api.md](DOCUMENTATION/IN%20DETAIL/api.md) — web demo: FastAPI routes, frontend, how to run
+  - [training.md](DOCUMENTATION/IN%20DETAIL/training.md) — training pipeline, Phase 0/1, hyperparameters
+  - [mongo.md](DOCUMENTATION/IN%20DETAIL/mongo.md) — MongoDB schema, collections, atomic promotion
+  - [data.md](DOCUMENTATION/IN%20DETAIL/data.md) — dataset download, conversion, ingestion
+  - [setup.md](DOCUMENTATION/IN%20DETAIL/setup.md) — environment setup and credentials
+  - [ai_assistance.md](DOCUMENTATION/IN%20DETAIL/ai_assistance.md) — AI tooling policy and configuration
 
 ## AI-assisted development
 This project uses AI tooling as a development assistant for code scaffolding,

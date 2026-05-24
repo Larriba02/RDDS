@@ -17,13 +17,15 @@ For the AI-assistance policy and configuration see
 
 - **Name:** Road Damage Detection System (RDDS).
 - **Course:** Universidad Francisco de Vitoria, Integrating Project, Group 3.
-- **Team:** M (lead, pipeline architecture), L (MongoDB), J (training and support).
+- **Team:** M (lead — pipeline architecture, data, YOLO11s baseline, evaluation, web demo), L (MongoDB only — schema, indexes, Atlas; does not train models), J (YOLO11m main model on RTX 4060).
 - **Goal:** End-to-end road-damage detection pipeline using deep learning on the
   RDD2022 dataset. Reports F1 at IoU ≥ 0.5 per CRDDC2022 protocol.
 - **Timeline:** ~3 months. Final deliverables: trained model, evaluation report,
   optional web demo.
-- **Hardware:** RTX 4050 laptop (6 GB, M, sandbox), RTX 4060 (8 GB, J),
-  A100 cluster (40 GB, SLURM, Phase 1).
+- **Hardware:** RTX 4050 laptop (6 GB, M — Phase 0 baseline and everything else),
+  RTX 4060 (8 GB, J — YOLO11m main model). The A100 cluster was planned for
+  Phase 1 but is **not used in the final deliverable** (kept as a documented
+  design artifact).
 
 ## 2. Non-negotiable rules
 
@@ -59,16 +61,26 @@ out of date and updated to F1.
 
 ## 4. Phase 0 / Phase 1 philosophy
 
-- **Phase 0 = laptop sandbox.** Trains YOLO11s with growing dataset fractions
-  (`SAMPLE_RATIO=0.10 → 0.25 → 0.50 → 1.00`). Used to map the F1-vs-data curve,
-  tune hyperparameters, and exercise the retraining workflow end-to-end. Output:
-  YOLO11s baseline at `SAMPLE_RATIO=1.0`.
-- **Phase 1 = A100 cluster.** Trains YOLO11s and YOLO11m on the full dataset
-  with the same hyperparameters (batch=32, epochs=100, patience=20). Output:
-  YOLO11m promoted to production if it beats baseline by the F1 margin in §3.
-- Before any A100 job: run a **1-epoch smoke test** on `tests/data/tiny_rdd2022/`
-  to confirm SLURM, CUDA, MongoDB writes, and Backblaze upload all work on the
-  cluster node.
+The two-phase design (laptop sandbox + A100 cluster) is unchanged **in spirit**.
+Phase 1 is **documented but not executed** in the final deliverable: the
+YOLO11m main model is trained locally by J on the RTX 4060 instead.
+
+- **Phase 0 = laptop sandbox (executed).** Trains YOLO11s with growing dataset
+  fractions (`SAMPLE_RATIO=0.10 → 0.25 → 0.50 → 1.00`). Used to map the
+  F1-vs-data curve, tune hyperparameters, and exercise the retraining workflow
+  end-to-end. Output: YOLO11s baseline at `SAMPLE_RATIO=1.0`.
+- **YOLO11m main model (executed locally).** Trained by J on the RTX 4060.
+  This replaces the originally planned A100 cluster YOLO11m run and is the
+  project's final reported main model. Promotion follows the same F1 margin
+  rule in §3.
+- **Phase 1 = A100 cluster (not executed).** `scripts/train_cluster.sh` and
+  `scripts/submit_sweep.sh` remain in the repo as a documented design
+  artifact for the SLURM-based training path. No SLURM job is reported in
+  the final deliverable.
+- If Phase 1 were ever executed, the design calls for a **1-epoch smoke test**
+  on `tests/data/tiny_rdd2022/` first, to confirm SLURM, CUDA, MongoDB writes,
+  and Backblaze upload all work on the cluster node before queueing the real
+  run.
 
 ## 5. Resource locations
 
@@ -77,8 +89,9 @@ out of date and updated to F1.
   (`images_metadata`, `experiments`, `predictions`). Connection via `MONGO_URI`
   in `.env`.
 - **Backblaze B2:** bucket name in `BACKBLAZE_BUCKET`, credentials in `.env`.
-  Stores `best.pt`, `last.pt`, `best.onnx` per run; URLs written into the
-  `experiments` document.
+  Stores `best.pt`, `last.pt`, `best.onnx`, and `results.csv` per run; URLs
+  written into the `experiments.checkpoints` document (the dashboard reads
+  `results_csv` as a fallback when the local file is missing).
 - **Dataset (RDD2022):** Sekilab S3, public CC BY-SA 4.0. Local path on each
   machine in `RDD_DATA_ROOT`.
 - **MLflow:** local `./mlruns/` per machine.
@@ -97,14 +110,24 @@ RDDS/
 │   ├── RDDS_Dev_Steps.md                  # the development plan
 │   ├── RDDS_Pipeline.md                   # full pipeline reference
 │   └── IN DETAIL/                         # one doc per pipeline stage
+│       ├── setup.md
 │       ├── mongo.md
+│       ├── data.md
+│       ├── training.md
+│       ├── evaluation.md
+│       ├── dashboard.md
+│       ├── inference.md
+│       ├── retraining.md
+│       ├── api.md
 │       └── ai_assistance.md               # AI / Claude usage policy
 ├── src/
 │   ├── db/                                # connection.py, setup_atlas.py, test_connection.py
 │   ├── data/                              # download, validate, convert, split, ingest
 │   ├── training/                          # train, upload_checkpoint, promote, retrain
 │   ├── evaluation/                        # evaluate, qualitative
-│   └── inference/                         # predict, extract_frames
+│   ├── inference/                         # predict, extract_frames
+│   ├── api/                               # FastAPI web demo (Step 8 — optional)
+│   └── dashboard.py                       # Streamlit experiment dashboard
 ├── tests/
 │   └── data/tiny_rdd2022/                 # synthetic 5×2×4 mini-dataset
 ├── scripts/

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RDDS — Road Damage Detection</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2d3040;
+      --accent:   #4f8ef7;
+      --text:     #e2e6f0;
+      --muted:    #8b92a8;
+      --D00:      #3b82f6;
+      --D10:      #22c55e;
+      --D20:      #eab308;
+      --D40:      #ef4444;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header svg { flex-shrink: 0; }
+    header h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: .02em; }
+    header p  { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── Model badge ── */
+    #model-badge {
+      margin-left: auto;
+      background: #1e2234;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: .78rem;
+      color: var(--muted);
+      text-align: right;
+      min-width: 180px;
+    }
+    #model-badge strong { color: var(--text); display: block; font-size: .85rem; }
+
+    /* ── Main layout ── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      padding: 32px 40px;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    section { display: flex; flex-direction: column; gap: 16px; }
+    h2 { font-size: .85rem; font-weight: 600; text-transform: uppercase;
+         letter-spacing: .08em; color: var(--muted); }
+
+    /* ── Drop zone ── */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      min-height: 280px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--accent);
+      background: #1d2035;
+    }
+    #drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    #drop-zone svg { color: var(--muted); }
+    #drop-zone p { color: var(--muted); font-size: .9rem; text-align: center; }
+    #drop-zone span { font-size: .75rem; color: #5a6077; }
+
+    #preview-img {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      display: none;
+      object-fit: contain;
+    }
+
+    /* ── Button ── */
+    #detect-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    #detect-btn:hover:not(:disabled) { opacity: .88; }
+    #detect-btn:active:not(:disabled) { transform: scale(.98); }
+    #detect-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Result panel ── */
+    #result-panel { display: flex; flex-direction: column; gap: 16px; }
+
+    #annotated-img {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      object-fit: contain;
+      display: none;
+      border: 1px solid var(--border);
+    }
+
+    /* ── Detections table ── */
+    #detections-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: none;
+    }
+    #detections-wrap h3 {
+      font-size: .78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    thead { background: #14172280; }
+    th { padding: 9px 14px; text-align: left; color: var(--muted);
+         font-weight: 500; font-size: .78rem; text-transform: uppercase;
+         letter-spacing: .06em; }
+    td { padding: 9px 14px; border-top: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+
+    .label-chip {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 4px;
+      font-size: .78rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .D00 { background: var(--D00); }
+    .D10 { background: var(--D10); }
+    .D20 { background: var(--D20); color: #111; }
+    .D40 { background: var(--D40); }
+
+    .conf-bar-wrap {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .conf-bar {
+      height: 6px; border-radius: 3px; background: var(--border);
+      flex: 1; overflow: hidden;
+    }
+    .conf-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+    .conf-val { font-size: .78rem; color: var(--muted); min-width: 38px; text-align: right; }
+
+    .bbox-val { font-family: monospace; font-size: .78rem; color: var(--muted); }
+
+    /* ── No detections ── */
+    #no-detections {
+      display: none;
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    /* ── Error ── */
+    #error-msg {
+      display: none;
+      background: #2d1414;
+      border: 1px solid #6b2020;
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #f87171;
+      font-size: .88rem;
+    }
+
+    /* ── Placeholder text ── */
+    #result-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      min-height: 280px;
+      color: var(--muted);
+      font-size: .9rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+
+    @media (max-width: 800px) {
+      main { grid-template-columns: 1fr; padding: 20px; }
+      header { padding: 14px 20px; }
+      #model-badge { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="8" fill="#4f8ef7"/>
+    <path d="M8 26 L18 10 L28 26" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="18" cy="10" r="2.5" fill="white"/>
+    <circle cx="8"  cy="26" r="2.5" fill="white"/>
+    <circle cx="28" cy="26" r="2.5" fill="white"/>
+  </svg>
+  <div>
+    <h1>Road Damage Detection System</h1>
+    <p>RDDS · Group 3 · UFV · CRDDC2022</p>
+  </div>
+  <div id="model-badge">
+    <strong id="badge-model">—</strong>
+    <span id="badge-f1">Loading model info…</span>
+  </div>
+</header>
+
+<main>
+  <!-- Left: upload -->
+  <section>
+    <h2>Input Image</h2>
+
+    <div id="drop-zone">
+      <input type="file" id="file-input" accept="image/*" />
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Click or drag an image here</p>
+      <span>JPG, PNG, BMP, WEBP</span>
+    </div>
+
+    <img id="preview-img" alt="Preview" />
+
+    <button id="detect-btn" disabled>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Detect Damage
+    </button>
+
+    <div id="error-msg"></div>
+  </section>
+
+  <!-- Right: results -->
+  <section>
+    <h2>Results</h2>
+
+    <div id="result-placeholder">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <p>Annotated image will appear here</p>
+    </div>
+
+    <img id="annotated-img" alt="Annotated result" />
+
+    <div id="no-detections">No damage detected in this image.</div>
+
+    <div id="detections-wrap">
+      <h3>Detections</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Confidence</th>
+            <th>Bounding Box</th>
+          </tr>
+        </thead>
+        <tbody id="detections-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  const fileInput    = document.getElementById('file-input');
+  const dropZone     = document.getElementById('drop-zone');
+  const previewImg   = document.getElementById('preview-img');
+  const detectBtn    = document.getElementById('detect-btn');
+  const annotatedImg = document.getElementById('annotated-img');
+  const placeholder  = document.getElementById('result-placeholder');
+  const detectionsWrap = document.getElementById('detections-wrap');
+  const detectionsBody = document.getElementById('detections-body');
+  const noDetections = document.getElementById('no-detections');
+  const errorMsg     = document.getElementById('error-msg');
+
+  let selectedFile = null;
+
+  // --- Load model info ---
+  fetch('/model')
+    .then(r => r.json())
+    .then(data => {
+      const modelEl = document.getElementById('badge-model');
+      const f1El    = document.getElementById('badge-f1');
+      modelEl.textContent = data.run_id || data.model || '—';
+      const f1 = data.F1_overall != null ? (data.F1_overall * 100).toFixed(1) + '% F1' : 'F1 n/a';
+      f1El.textContent = `${data.model ?? ''} · ${f1}`;
+    })
+    .catch(() => {
+      document.getElementById('badge-f1').textContent = 'Model info unavailable';
+    });
+
+  // --- File selection ---
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) loadFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) loadFile(f);
+  });
+
+  function loadFile(file) {
+    selectedFile = file;
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
+    previewImg.style.display = 'block';
+    dropZone.style.display = 'none';
+    detectBtn.disabled = false;
+    resetResults();
+    hideError();
+  }
+
+  // --- Detect ---
+  detectBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    setLoading(true);
+    resetResults();
+    hideError();
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const resp = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        showError(data.detail || 'Inference failed.');
+        return;
+      }
+
+      // Show annotated image
+      placeholder.style.display = 'none';
+      annotatedImg.src = 'data:image/jpeg;base64,' + data.annotated_image;
+      annotatedImg.style.display = 'block';
+
+      // Show detections
+      if (data.detections.length === 0) {
+        noDetections.style.display = 'block';
+      } else {
+        detectionsBody.innerHTML = '';
+        data.detections.forEach(det => {
+          const tr = document.createElement('tr');
+          const [x1, y1, x2, y2] = det.bbox;
+          const pct = Math.round(det.confidence * 100);
+          tr.innerHTML = `
+            <td><span class="label-chip ${det.label}">${det.label}</span></td>
+            <td>
+              <div class="conf-bar-wrap">
+                <div class="conf-bar"><div class="conf-fill" style="width:${pct}%"></div></div>
+                <span class="conf-val">${pct}%</span>
+              </div>
+            </td>
+            <td><span class="bbox-val">[${x1}, ${y1}, ${x2}, ${y2}]</span></td>
+          `;
+          detectionsBody.appendChild(tr);
+        });
+        detectionsWrap.style.display = 'block';
+      }
+    } catch (err) {
+      showError('Network error — is the server running?');
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  function setLoading(on) {
+    if (on) {
+      detectBtn.disabled = true;
+      detectBtn.innerHTML = '<div class="spinner"></div> Detecting…';
+    } else {
+      detectBtn.disabled = false;
+      detectBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Detect Damage`;
+    }
+  }
+
+  function resetResults() {
+    annotatedImg.style.display = 'none';
+    annotatedImg.src = '';
+    detectionsWrap.style.display = 'none';
+    noDetections.style.display = 'none';
+    detectionsBody.innerHTML = '';
+    placeholder.style.display = 'flex';
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.style.display = 'block';
+  }
+
+  function hideError() {
+    errorMsg.style.display = 'none';
+  }
+</script>
+</body>
+</html>
