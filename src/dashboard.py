@@ -28,7 +28,6 @@ import mlflow
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
@@ -145,15 +144,56 @@ def load_results_csv(run_id: str, b2_url: str | None = None) -> pd.DataFrame | N
         return df
     if b2_url:
         try:
-            resp = requests.get(b2_url, timeout=10)
-            resp.raise_for_status()
-            df = pd.read_csv(io.StringIO(resp.text))
+            csv_text = _fetch_b2_text(b2_url, timeout=10)
+            df = pd.read_csv(io.StringIO(csv_text))
         except Exception as exc:
             st.warning(f"Could not fetch results.csv from B2: {exc}")
             return None
         df.columns = [c.strip() for c in df.columns]
         return df
     return None
+
+
+def _fetch_b2_text(url: str, timeout: int = 10) -> str:
+    """Fetch a Backblaze B2 object as text using authenticated S3 API.
+
+    The bucket is private, so anonymous requests return 401. Credentials are
+    read from .env (BACKBLAZE_KEY_ID, BACKBLAZE_APP_KEY).
+    """
+    import os
+    import urllib.parse
+
+    import boto3
+    from botocore.config import Config
+
+    parsed = urllib.parse.urlparse(url)
+    endpoint = f"{parsed.scheme}://{parsed.netloc}"
+    parts = parsed.path.lstrip("/").split("/", 1)
+    if len(parts) != 2:
+        raise RuntimeError(f"Cannot parse bucket/key from URL: {url}")
+    bucket, key = parts
+
+    key_id = os.getenv("BACKBLAZE_KEY_ID")
+    app_key = os.getenv("BACKBLAZE_APP_KEY")
+    if not key_id or not app_key:
+        raise RuntimeError(
+            "BACKBLAZE_KEY_ID and BACKBLAZE_APP_KEY must be set in .env to "
+            "fetch results.csv from the private B2 bucket."
+        )
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=key_id,
+        aws_secret_access_key=app_key,
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=timeout,
+            read_timeout=timeout,
+        ),
+    )
+    obj = client.get_object(Bucket=bucket, Key=key)
+    return obj["Body"].read().decode("utf-8")
 
 
 @st.cache_data(ttl=60, show_spinner=False)

@@ -44,8 +44,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import time
-import urllib.request
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -146,10 +147,7 @@ def _resolve_checkpoint(exp: dict[str, Any]) -> Path:
         dest = dl_dir / "best.pt"
         if not dest.exists():
             print(f"  Downloading checkpoint from B2: {b2_url}")
-            with urllib.request.urlopen(b2_url, timeout=300) as resp:
-                with open(dest, "wb") as fh:
-                    while chunk := resp.read(1 << 20):
-                        fh.write(chunk)
+            _download_from_b2(b2_url, dest)
         else:
             print(f"  Using cached download: {dest}")
         return dest
@@ -158,6 +156,57 @@ def _resolve_checkpoint(exp: dict[str, Any]) -> Path:
         f"Cannot find best.pt for run_id='{run_id}'. "
         "Check local runs/ directory or MongoDB checkpoints.best_pt."
     )
+
+
+def _download_from_b2(url: str, dest: Path) -> None:
+    """Download a Backblaze B2 object to ``dest`` using authenticated S3 API.
+
+    The bucket is private, so anonymous HTTP requests return 401. Credentials
+    are read from the same .env variables used by upload_checkpoint.py
+    (BACKBLAZE_KEY_ID, BACKBLAZE_APP_KEY, optional BACKBLAZE_ENDPOINT).
+
+    Args:
+        url: Full S3-style URL stored in ``experiments.checkpoints.best_pt``,
+             e.g. ``https://s3.eu-central-003.backblazeb2.com/<bucket>/<key>``.
+        dest: Local destination path.
+
+    Raises:
+        RuntimeError: If credentials are missing or download fails.
+    """
+    import boto3
+    from botocore.config import Config
+
+    parsed = urllib.parse.urlparse(url)
+    endpoint = f"{parsed.scheme}://{parsed.netloc}"
+    # Path is "/<bucket>/<key>" — split into bucket and key.
+    parts = parsed.path.lstrip("/").split("/", 1)
+    if len(parts) != 2:
+        raise RuntimeError(f"Cannot parse bucket/key from URL: {url}")
+    bucket, key = parts
+
+    key_id = os.getenv("BACKBLAZE_KEY_ID")
+    app_key = os.getenv("BACKBLAZE_APP_KEY")
+    if not key_id or not app_key:
+        raise RuntimeError(
+            "Cannot download checkpoint from B2: BACKBLAZE_KEY_ID and "
+            "BACKBLAZE_APP_KEY must be set in .env."
+        )
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=key_id,
+        aws_secret_access_key=app_key,
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=30,
+            read_timeout=300,
+        ),
+    )
+    try:
+        client.download_file(bucket, key, str(dest))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download {url} from B2: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
