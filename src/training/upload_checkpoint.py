@@ -110,20 +110,21 @@ def upload_checkpoints(
     run_id: str,
     run_dir: Path,
 ) -> dict[str, str]:
-    """Upload best.pt, last.pt, and best.onnx to Backblaze B2.
+    """Upload best.pt, last.pt, best.onnx, and results.csv to Backblaze B2.
 
-    Files are looked up in ``run_dir/weights/``.  Missing files are skipped
-    with a warning so that a run that never produced best.onnx (e.g. export
-    failed) can still upload the .pt files.
+    Checkpoint files are looked up in ``run_dir/weights/``; ``results.csv``
+    is read from ``run_dir`` itself (Ultralytics writes it at the run root).
+    Missing files are skipped with a warning so that a run that never
+    produced best.onnx (e.g. export failed) can still upload the rest.
 
     Args:
         run_id: Unique training run identifier (e.g. ``run_20260310_001``).
         run_dir: Path to the Ultralytics output directory for this run
-            (the directory that contains ``weights/``).
+            (the directory that contains ``weights/`` and ``results.csv``).
 
     Returns:
         Dict mapping shorthand key to public B2 URL:
-        ``{"best_pt": "...", "last_pt": "...", "best_onnx": "..."}``.
+        ``{"best_pt", "last_pt", "best_onnx", "results_csv"}``.
         A key is omitted if the corresponding file was not found.
 
     Raises:
@@ -227,7 +228,4 @@ if __name__ == "__main__":
         print(f"  {key}: {url}")
     if result and not args.no_mongo:
         print("\nUpdating MongoDB ...")
-        try:
-            _merge_mongo_checkpoints(args.run_id, result)
-        except Exception as exc:
-            print(f"  [warn] Mongo update failed: {exc}")
+        _merge_mongo_checkpoints(args.run_id, result)

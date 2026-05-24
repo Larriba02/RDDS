@@ -22,10 +22,13 @@ _REPO_ROOT = Path(__file__).parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+import io
+
 import mlflow
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
@@ -142,7 +145,9 @@ def load_results_csv(run_id: str, b2_url: str | None = None) -> pd.DataFrame | N
         return df
     if b2_url:
         try:
-            df = pd.read_csv(b2_url)
+            resp = requests.get(b2_url, timeout=10)
+            resp.raise_for_status()
+            df = pd.read_csv(io.StringIO(resp.text))
         except Exception as exc:
             st.warning(f"Could not fetch results.csv from B2: {exc}")
             return None
