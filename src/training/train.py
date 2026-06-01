@@ -336,6 +336,11 @@ def _write_initial_mongo_doc(
         "hyperparams": hyperparams,
         "metrics": {},
         "checkpoints": {},
+        # Live per-epoch monitoring (filled by the on_fit_epoch_end callback).
+        "progress": [],
+        "progress_current_epoch": 0,
+        "progress_total_epochs": hyperparams.get("epochs"),
+        "progress_updated_at": None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     db["experiments"].insert_one(doc)
@@ -351,6 +356,89 @@ def _update_mongo_doc(run_id: str, update: dict[str, Any]) -> None:
     """
     db = get_db()
     db["experiments"].update_one({"run_id": run_id}, {"$set": update})
+
+
+def _register_progress_callback(yolo: YOLO, run_id: str, total_epochs: int) -> None:
+    """Register an Ultralytics callback that streams per-epoch metrics to MongoDB.
+
+    Without this, the experiments document only changes at start (status=
+    "running") and end (status="completed"). Another machine watching MongoDB —
+    e.g. the Streamlit dashboard following a remote A100 cluster run — would see
+    no progress until the whole run finishes.
+
+    The callback fires on ``on_fit_epoch_end`` (after each epoch's validation)
+    and appends a record to ``experiments.progress`` with the validation
+    metrics (precision, recall, mAP50, mAP50-95, fitness), the training losses
+    (box/cls/dfl), the learning rate, and a derived F1. Top-level
+    ``progress_current_epoch`` / ``progress_total_epochs`` / ``progress_updated_at``
+    fields are also set so the dashboard can cheaply poll "how far along is it".
+
+    MongoDB is the cross-machine source of truth (CLAUDE.md §9); MLflow's local
+    ``./mlruns/`` cannot be followed from another host, which is why we write
+    progress here rather than relying on the MLflow callback.
+
+    The whole body is wrapped in a try/except: a logging hiccup (transient
+    network blip to Atlas) must never crash an expensive training run.
+
+    Args:
+        yolo: The YOLO model instance to attach the callback to.
+        run_id: Experiment run_id (the MongoDB document key).
+        total_epochs: Configured maximum epochs (for the progress fraction).
+    """
+    col = get_db()["experiments"]
+
+    def _on_fit_epoch_end(trainer: Any) -> None:  # noqa: ANN401
+        try:
+            # trainer.epoch is 0-indexed; report 1-indexed to match results.csv.
+            epoch = int(getattr(trainer, "epoch", 0)) + 1
+            ts = datetime.now(timezone.utc).isoformat()
+            record: dict[str, Any] = {"epoch": epoch, "timestamp": ts}
+
+            # Validation metrics + fitness — keys like 'metrics/mAP50(B)'.
+            for key, val in (getattr(trainer, "metrics", {}) or {}).items():
+                try:
+                    record[key] = round(float(val), 6)
+                except (ValueError, TypeError):
+                    continue
+
+            # Training losses (tensor -> {'train/box_loss': ...}).
+            tloss = getattr(trainer, "tloss", None)
+            if tloss is not None and hasattr(trainer, "label_loss_items"):
+                try:
+                    for key, val in trainer.label_loss_items(tloss, prefix="train").items():
+                        record[key] = round(float(val), 6)
+                except (ValueError, TypeError, AttributeError):
+                    pass
+
+            # Learning rate (first param group is representative).
+            lr = getattr(trainer, "lr", None)
+            if isinstance(lr, dict) and lr:
+                try:
+                    record["lr"] = round(float(next(iter(lr.values()))), 8)
+                except (ValueError, TypeError, StopIteration):
+                    pass
+
+            # Derived F1 from val precision/recall, for live curve parity.
+            p = record.get("metrics/precision(B)")
+            r = record.get("metrics/recall(B)")
+            if p is not None and r is not None and (p + r) > 0:
+                record["F1"] = round(2 * p * r / (p + r), 6)
+
+            col.update_one(
+                {"run_id": run_id},
+                {
+                    "$push": {"progress": record},
+                    "$set": {
+                        "progress_current_epoch": epoch,
+                        "progress_total_epochs": total_epochs,
+                        "progress_updated_at": ts,
+                    },
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — never kill training over logging
+            print(f"  [warn] progress callback failed (epoch logging skipped): {exc}")
+
+    yolo.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +709,10 @@ def train(
     # ------------------------------------------------------------------
     project_dir = str(RUNS_DIR)
     yolo = YOLO(f"{model}.pt")  # downloads pretrained weights if absent
+
+    # Stream per-epoch metrics to MongoDB so the run is followable live from
+    # another machine (e.g. the dashboard watching a remote cluster run).
+    _register_progress_callback(yolo, run_id, total_epochs=epochs)
 
     # Note on cls_weights: Ultralytics 8.x ``cls`` hyperparameter is a single
     # float that scales the *global* classification loss gain (default 0.5).

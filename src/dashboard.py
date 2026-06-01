@@ -154,6 +154,38 @@ def load_results_csv(run_id: str, b2_url: str | None = None) -> pd.DataFrame | N
     return None
 
 
+def load_progress(run_id: str) -> dict:
+    """Read the live per-epoch progress for a run straight from MongoDB.
+
+    Deliberately NOT cached: the Live Training page polls this on a timer and
+    must see fresh data each refresh. MongoDB is the cross-machine source of
+    truth (CLAUDE.md §9), so this works for a run executing on a remote host
+    (e.g. the A100 cluster) just as well as a local one.
+
+    Returns the document fields needed to render live curves, or an empty dict
+    if the run is missing or MongoDB is unreachable.
+    """
+    try:
+        db = get_db()
+    except Exception:
+        return {}
+    doc = db["experiments"].find_one(
+        {"run_id": run_id},
+        {
+            "_id": 0,
+            "model": 1,
+            "status": 1,
+            "is_production": 1,
+            "progress": 1,
+            "progress_current_epoch": 1,
+            "progress_total_epochs": 1,
+            "progress_updated_at": 1,
+            "metrics": 1,
+        },
+    )
+    return doc or {}
+
+
 def _fetch_b2_text(url: str, timeout: int = 10) -> str:
     """Fetch a Backblaze B2 object as text using authenticated S3 API.
 
@@ -246,7 +278,7 @@ with st.sidebar:
     st.caption("Road Damage Detection System")
     page = st.radio(
         "Navigate",
-        ["Overview", "Experiments", "Validation", "Run Detail", "MLflow"],
+        ["Overview", "Live Training", "Experiments", "Validation", "Run Detail", "MLflow"],
         label_visibility="collapsed",
     )
     st.divider()
@@ -351,6 +383,134 @@ if page == "Overview":
     c2.metric("Completed", len(df_completed))
     c3.metric("Running", len(df_all[df_all["status"] == "running"]))
     c4.metric("Failed", len(df_all[df_all["status"] == "failed"]))
+
+# ---------------------------------------------------------------------------
+# Page: Live Training
+# ---------------------------------------------------------------------------
+
+elif page == "Live Training":
+    st.title("Live Training")
+    st.caption(
+        "Per-epoch metrics streamed to MongoDB by the training callback. "
+        "Because MongoDB is the cross-machine source of truth, this follows a "
+        "run executing on another host (e.g. the A100 cluster) in real time — "
+        "no local results.csv required."
+    )
+
+    if df_all.empty:
+        st.warning("No experiments found in MongoDB.")
+        st.stop()
+
+    running_ids = df_all[df_all["status"] == "running"]["run_id"].tolist()
+    all_ids = df_all["run_id"].tolist()
+    # Running runs first; fall back to any run (so finished runs can be replayed).
+    options = running_ids + [r for r in all_ids if r not in running_ids]
+
+    top = st.columns([3, 1, 1])
+    selected_run = top[0].selectbox(
+        "Run",
+        options,
+        help="Runs with status='running' are listed first.",
+    )
+    auto = top[1].checkbox("Auto-refresh", value=True)
+    interval = top[2].selectbox("Every", [3, 5, 10, 30], index=1, format_func=lambda s: f"{s}s")
+
+    if running_ids:
+        st.success(f"{len(running_ids)} run(s) currently training: {', '.join(running_ids)}")
+    else:
+        st.info("No run is currently training. Showing recorded per-epoch history for the selected run.")
+
+    _LIVE_COL_MAP = {
+        "epoch": "Epoch",
+        "train/box_loss": "Train box loss",
+        "train/cls_loss": "Train cls loss",
+        "train/dfl_loss": "Train dfl loss",
+        "val/box_loss": "Val box loss",
+        "val/cls_loss": "Val cls loss",
+        "val/dfl_loss": "Val dfl loss",
+        "metrics/precision(B)": "Precision",
+        "metrics/recall(B)": "Recall",
+        "metrics/mAP50(B)": "mAP@0.5",
+        "metrics/mAP50-95(B)": "mAP@0.5:0.95",
+        "F1": "F1",
+    }
+
+    @st.fragment(run_every=(f"{interval}s" if auto else None))
+    def _live_view() -> None:
+        doc = load_progress(selected_run)
+        if not doc:
+            st.error(f"Run '{selected_run}' not found in MongoDB.")
+            return
+
+        status = doc.get("status", "?")
+        cur = doc.get("progress_current_epoch") or 0
+        total = doc.get("progress_total_epochs") or 0
+        updated = doc.get("progress_updated_at")
+
+        # Status / progress header.
+        h = st.columns([2, 2, 2])
+        h[0].markdown(f"**Status:** {_status_badge(status, doc.get('is_production', False))}")
+        h[1].markdown(f"**Model:** `{doc.get('model', '?')}`")
+        h[2].markdown(f"**Last update:** {updated or 'n/a'}")
+
+        if total:
+            st.progress(min(cur / total, 1.0), text=f"Epoch {cur} / {total}")
+
+        progress = doc.get("progress") or []
+        if not progress:
+            st.info(
+                "No per-epoch records yet. The first row appears after epoch 1 "
+                "finishes its validation pass."
+            )
+            return
+
+        df_p = pd.DataFrame(progress)
+        df_p = df_p.rename(columns={k: v for k, v in _LIVE_COL_MAP.items() if k in df_p.columns})
+        df_p = df_p.sort_values("Epoch") if "Epoch" in df_p.columns else df_p
+        mode = "lines+markers" if len(df_p) >= 2 else "markers"
+
+        # Latest-epoch metric cards.
+        last = df_p.iloc[-1]
+        cards = st.columns(5)
+        for col_box, name in zip(
+            cards, ["F1", "Precision", "Recall", "mAP@0.5", "mAP@0.5:0.95"]
+        ):
+            val = last.get(name)
+            col_box.metric(name, f"{val:.4f}" if pd.notna(val) else "N/A")
+
+        tab_m, tab_l = st.tabs(["Metrics", "Losses"])
+
+        with tab_m:
+            metric_cols = [c for c in ["F1", "Precision", "Recall", "mAP@0.5", "mAP@0.5:0.95"] if c in df_p.columns]
+            if metric_cols and "Epoch" in df_p.columns:
+                fig = go.Figure()
+                for col in metric_cols:
+                    fig.add_trace(go.Scatter(x=df_p["Epoch"], y=df_p[col], name=col, mode=mode))
+                fig.update_layout(
+                    title="Validation metrics per epoch (live)",
+                    xaxis_title="Epoch", yaxis_title="Value", yaxis_range=[0, 1],
+                    height=400, legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                )
+                st.plotly_chart(fig, width="stretch")
+
+        with tab_l:
+            train_cols = [c for c in ["Train box loss", "Train cls loss", "Train dfl loss"] if c in df_p.columns]
+            val_cols = [c for c in ["Val box loss", "Val cls loss", "Val dfl loss"] if c in df_p.columns]
+            if (train_cols or val_cols) and "Epoch" in df_p.columns:
+                fig2 = make_subplots(rows=1, cols=2, subplot_titles=("Train losses", "Val losses"))
+                for col in train_cols:
+                    fig2.add_trace(go.Scatter(x=df_p["Epoch"], y=df_p[col], name=col, mode=mode), row=1, col=1)
+                for col in val_cols:
+                    fig2.add_trace(go.Scatter(x=df_p["Epoch"], y=df_p[col], name=col, mode=mode), row=1, col=2)
+                fig2.update_layout(height=400, legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                st.plotly_chart(fig2, width="stretch")
+            else:
+                st.info("No loss columns recorded yet.")
+
+        with st.expander("Raw per-epoch records", expanded=False):
+            st.dataframe(df_p, width="stretch", hide_index=True)
+
+    _live_view()
 
 # ---------------------------------------------------------------------------
 # Page: Experiments

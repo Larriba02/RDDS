@@ -5,9 +5,11 @@ Step 1 (MongoDB) is covered by the existing /smoke-test slash command
 (src/db/setup_atlas.py + src/db/test_connection.py). This runner calls
 it here as well so everything is in one place.
 
-Steps 3/4 (training) use 'python -m src.training.train --epochs 1 --batch 2
---sample-ratio 0.10' on the tiny dataset — run those manually if you want
-to exercise the full training loop.
+Step 3 (training monitor) runs a real 1-epoch CPU train on the tiny dataset
+via smoke_step3.py and asserts the per-epoch progress callback (R1) wrote to
+MongoDB; it backs up / restores splits.json and cleans up the tiny docs and
+the smoke experiment afterwards. Step 4 (cluster) is exercised manually via
+'sbatch scripts/train_cluster.sh ... SMOKE_TEST=1'.
 
 Usage:
     python tests/smoke_all.py            # run all steps
@@ -27,6 +29,7 @@ STEP_SCRIPTS: dict[int, str | list[str]] = {
         [sys.executable, "-m", "src.db.test_connection"],
     ],
     2: [sys.executable, str(TESTS / "smoke_step2.py")],
+    3: [sys.executable, str(TESTS / "smoke_step3.py")],
     5: [sys.executable, str(TESTS / "smoke_step5.py")],
     6: [sys.executable, str(TESTS / "smoke_step6.py")],
     7: [sys.executable, str(TESTS / "smoke_step7.py")],
@@ -36,6 +39,7 @@ STEP_SCRIPTS: dict[int, str | list[str]] = {
 STEP_LABELS = {
     1: "MongoDB Setup",
     2: "Data Pipeline",
+    3: "Training Monitor (R1)",
     5: "Evaluation",
     6: "Inference",
     7: "Retraining",
