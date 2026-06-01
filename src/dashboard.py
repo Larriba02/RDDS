@@ -725,6 +725,167 @@ elif page == "Validation":
         fig_overall.update_layout(xaxis_range=[0, 1], yaxis_title=None)
         st.plotly_chart(fig_overall, width="stretch")
 
+    # -----------------------------------------------------------------------
+    # Detailed error analysis (single run) — R2 detection-native metrics
+    # -----------------------------------------------------------------------
+    st.divider()
+    st.subheader("Detailed error analysis (single run)")
+    detail_label = st.selectbox("Run for the detailed view", selected_labels, key="val_detail")
+    ev = label_to_doc[detail_label]["metrics"]["evaluation_val"]
+
+    # Per-class precision / recall / AP table.
+    per_class = ev.get("per_class") or {}
+    if per_class:
+        st.markdown("**Per-class precision / recall / AP**  (IoU ≥ 0.5, conf = 0.5)")
+        pc_rows = []
+        for cls in CLASS_NAMES:
+            m = per_class.get(cls)
+            if not m:
+                continue
+            pc_rows.append({
+                "Class": cls,
+                "Precision": m.get("precision"),
+                "Recall": m.get("recall"),
+                "AP@0.5": m.get("AP50"),
+                "AP@0.5:0.95": m.get("AP50_95"),
+                "F1": m.get("F1"),
+            })
+        num_cols = ["Precision", "Recall", "AP@0.5", "AP@0.5:0.95", "F1"]
+        st.dataframe(
+            pd.DataFrame(pc_rows), hide_index=True, width="stretch",
+            column_config={c: st.column_config.NumberColumn(c, format="%.3f") for c in num_cols},
+        )
+    else:
+        st.info(
+            "No per-class P/R/AP recorded for this run. Re-run "
+            "`python -m src.evaluation.evaluate` to populate the R2 metrics."
+        )
+
+    col_cm, col_pr = st.columns(2)
+
+    # Confusion matrix heatmap.
+    with col_cm:
+        st.markdown("**Confusion matrix**")
+        cm = ev.get("confusion_matrix")
+        if cm and cm.get("matrix"):
+            labels = cm["labels"]
+            mat = cm["matrix"]
+            fig_cm = go.Figure(data=go.Heatmap(
+                z=mat,
+                x=[f"true {lbl}" for lbl in labels],
+                y=[f"pred {lbl}" for lbl in labels],
+                colorscale="Blues", text=mat, texttemplate="%{text}", showscale=False,
+            ))
+            fig_cm.update_layout(
+                height=420, yaxis_autorange="reversed",
+                xaxis_title="ground truth", yaxis_title="predicted",
+                title=f"conf={cm.get('conf')}, IoU match={cm.get('iou_thres')}",
+            )
+            st.plotly_chart(fig_cm, width="stretch")
+            st.caption(cm.get("note", ""))
+        else:
+            st.info("No confusion matrix recorded for this run.")
+
+    # Precision–Recall curves per class.
+    with col_pr:
+        st.markdown("**Precision–Recall curves** (per class)")
+        pr = ev.get("pr_curves")
+        if pr and pr.get("per_class"):
+            fig_pr = go.Figure()
+            for cls, c in pr["per_class"].items():
+                fig_pr.add_trace(go.Scatter(
+                    x=c.get("recall", []), y=c.get("precision", []), mode="lines", name=cls,
+                ))
+                if c.get("recall_at_op") is not None:
+                    fig_pr.add_trace(go.Scatter(
+                        x=[c["recall_at_op"]], y=[c["precision_at_op"]],
+                        mode="markers", marker=dict(size=10, symbol="x", color="black"),
+                        showlegend=False, hovertext=f"{cls} @ conf={pr.get('operating_point_conf')}",
+                    ))
+            fig_pr.update_layout(
+                height=420, xaxis_title="Recall", yaxis_title="Precision",
+                xaxis_range=[0, 1], yaxis_range=[0, 1],
+                title=f"×  = operating point at conf={pr.get('operating_point_conf')}",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(fig_pr, width="stretch")
+        else:
+            st.info("No PR curve data recorded for this run.")
+
+    # False-positive / false-negative breakdown.
+    fp_fn = (ev.get("fp_fn") or {}).get("overall") or {}
+    if fp_fn:
+        st.markdown("**False-positive / false-negative breakdown**  (from the confusion matrix, conf = 0.5)")
+        ff_rows = []
+        for cls in CLASS_NAMES:
+            e = fp_fn.get(cls)
+            if not e:
+                continue
+            ff_rows.append({"Class": cls, **{k: e.get(k) for k in ("TP", "FP", "FN", "FP_background", "FN_missed")}})
+        df_ff = pd.DataFrame(ff_rows)
+        melt = df_ff.melt(id_vars="Class", value_vars=["TP", "FP", "FN"], var_name="Kind", value_name="Count")
+        fig_ff = px.bar(
+            melt, x="Class", y="Count", color="Kind", barmode="group", height=360,
+            title="TP / FP / FN per class",
+        )
+        st.plotly_chart(fig_ff, width="stretch")
+        st.dataframe(df_ff, hide_index=True, width="stretch")
+
+        per_country_ff = (ev.get("fp_fn") or {}).get("per_country") or {}
+        if per_country_ff:
+            with st.expander("FP / FN per country"):
+                rows = []
+                for ctry, classes in sorted(per_country_ff.items()):
+                    for cls, e in classes.items():
+                        rows.append({"Country": ctry, "Class": cls, **{k: e.get(k) for k in ("TP", "FP", "FN")}})
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    # Localization error — IoU distribution of class-correct detections.
+    loc = ev.get("localization") or {}
+    if loc.get("n_class_correct"):
+        st.markdown("**Localization error**  (IoU of class-correct detections vs ground truth, conf = 0.5)")
+        lo, hi = loc.get("poor_box_iou_range", [0.1, 0.5])
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Mean IoU", f"{loc.get('mean_iou', 0):.3f}")
+        m2.metric("Median IoU", f"{loc.get('median_iou', 0):.3f}")
+        m3.metric(f"Poor-box share (IoU<{hi})", f"{loc.get('poor_box_share', 0):.1%}")
+        m4.metric("Class-correct dets", f"{loc.get('n_class_correct', 0)}")
+
+        hist = loc.get("iou_histogram") or {}
+        edges = hist.get("bin_edges") or []
+        counts = hist.get("counts") or []
+        if edges and counts:
+            centers = [round((edges[i] + edges[i + 1]) / 2, 2) for i in range(len(counts))]
+            colors = ["#d62728" if edges[i + 1] <= hi else "#2ca02c" for i in range(len(counts))]
+            fig_loc = go.Figure(go.Bar(x=centers, y=counts, marker_color=colors))
+            fig_loc.update_layout(
+                height=340, xaxis_title="best same-class IoU", yaxis_title="detections",
+                title=f"IoU distribution  (red = poor box, IoU in [{lo}, {hi}))",
+                bargap=0.05,
+            )
+            st.plotly_chart(fig_loc, width="stretch")
+
+        loc_pc = loc.get("per_class") or {}
+        if loc_pc:
+            st.dataframe(
+                pd.DataFrame([
+                    {"Class": c, "Class-correct dets": d.get("n"), "Poor boxes": d.get("poor"),
+                     "Poor-box share": d.get("poor_box_share"), "Mean IoU": d.get("mean_iou")}
+                    for c, d in sorted(loc_pc.items())
+                ]),
+                hide_index=True, width="stretch",
+                column_config={
+                    "Poor-box share": st.column_config.NumberColumn("Poor-box share", format="%.3f"),
+                    "Mean IoU": st.column_config.NumberColumn("Mean IoU", format="%.3f"),
+                },
+            )
+        n_capped = sum(1 for c in (loc.get("per_country_cap") or {}).values() if c.get("available", 0) > c.get("used", 0))
+        if n_capped:
+            st.caption(
+                f"Sampled up to {loc.get('sample_per_country')} images/country for this pass "
+                f"({n_capped} countries were capped). Increase via `--loc-sample`."
+            )
+
 
 # ---------------------------------------------------------------------------
 # Page: Run Detail

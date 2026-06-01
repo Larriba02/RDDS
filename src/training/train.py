@@ -522,6 +522,9 @@ def _extract_metrics(run_dir: Path) -> dict[str, float]:
         precision = _get("precision")
         recall = _get("recall")
         map50 = _get("mAP50(B)") or _get("mAP50")
+        # "mAP50-95(B)" must be matched before the looser "mAP50" fragment,
+        # which is a substring of it.
+        map5095 = _get("mAP50-95(B)") or _get("mAP50-95")
 
         if precision is not None and recall is not None and (precision + recall) > 0:
             f1 = 2 * precision * recall / (precision + recall)
@@ -531,6 +534,8 @@ def _extract_metrics(run_dir: Path) -> dict[str, float]:
         metrics: dict[str, float] = {}
         if map50 is not None:
             metrics["mAP50"] = round(map50, 6)
+        if map5095 is not None:
+            metrics["mAP50-95"] = round(map5095, 6)
         if precision is not None:
             metrics["precision"] = round(precision, 6)
         if recall is not None:
