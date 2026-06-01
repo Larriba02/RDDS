@@ -647,13 +647,14 @@ elif page == "Validation":
             "Precision": ev.get("precision_overall"),
             "Recall": ev.get("recall_overall"),
             "mAP@0.5": ev.get("mAP50_overall"),
+            "mAP@0.5:0.95": ev.get("mAP50_95_overall"),
         }
         for c in COUNTRIES:
             row[c] = ev.get("F1_per_country", {}).get(c)
         summary_rows.append(row)
 
     df_summary = pd.DataFrame(summary_rows)
-    fmt_cols = ["F1 overall", "Precision", "Recall", "mAP@0.5"] + COUNTRIES
+    fmt_cols = ["F1 overall", "Precision", "Recall", "mAP@0.5", "mAP@0.5:0.95"] + COUNTRIES
     for col in fmt_cols:
         if col in df_summary.columns:
             df_summary[col] = df_summary[col].apply(
