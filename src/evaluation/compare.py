@@ -65,16 +65,39 @@ BASELINE_RUN_ID = "run_20260504_202658_yolo11s"
 # CRDDC2022 leaderboard reference
 # ---------------------------------------------------------------------------
 # External reference column so the absolute level is contextualised. These are
-# NOT our numbers — they come from the official CRDDC2022 results. They are left
-# as ``None`` (rendered as "—") on purpose so nothing is fabricated: fill them in
-# from the published leaderboard before using the table in the report.
-#   Source: https://crddc2022.sekilab.global/  (see CLAUDE.md §3)
+# NOT our numbers — they are the CRDDC2022 challenge winner's official scores,
+# F1 @ IoU>0.5 on the TEST set. Source: Arya et al., "Crowdsensing-based Road
+# Damage Detection Challenge (CRDDC'2022)", arXiv:2211.11362, Table II
+# (https://arxiv.org/abs/2211.11362 ; challenge: https://crddc2022.sekilab.global/).
+#
+# CRDDC2022 had FIVE leaderboards: overall-6-countries + India + Japan + Norway +
+# United States. There was NO dedicated Czech or China leaderboard, and China was
+# not split into Drone/MotorBike — so those entries are None (not available),
+# never fabricated.
+#
+# CAVEAT: these are TEST-set scores under the challenge protocol; our numbers are
+# on the held-out VAL set. Use this as an absolute-level reference, not a
+# same-split head-to-head.
 CRDDC2022_LEADERBOARD: dict[str, Any] = {
-    "run_id": "CRDDC2022 leaderboard",
-    "model": "reference",
-    "F1_overall": None,
-    "F1_per_country": {c: None for c in COUNTRIES},
-    "note": "Official CRDDC2022 reference — fill F1 numbers from the leaderboard before reporting.",
+    "run_id": "CRDDC2022 winner (ShiYu_SeaView)",
+    "model": "ensemble (ref)",
+    "F1_overall": 0.770,  # LeaderBoard-1, 6 countries combined
+    "F1_per_country": {
+        "India": 0.583,
+        "Japan": 0.789,
+        "Norway": 0.595,
+        "United_States": 0.844,
+        "Czech": None,            # no dedicated CRDDC2022 leaderboard
+        "China_Drone": None,      # China not split; no dedicated leaderboard
+        "China_MotorBike": None,
+    },
+    "top3_overall": {"ShiYu_SeaView": 0.770, "DongjunJeong": 0.743, "MDPT": 0.741},
+    "source": "Arya et al., CRDDC'2022, arXiv:2211.11362, Table II.",
+    "note": (
+        "CRDDC2022 winner, F1 @ IoU>0.5 on the official TEST set (5 leaderboards: "
+        "overall-6-countries + India/Japan/Norway/US; no separate Czech/China board). "
+        "Our scores are on the held-out VAL set — absolute reference, not same-split."
+    ),
 }
 
 
