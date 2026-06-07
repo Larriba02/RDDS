@@ -12,7 +12,7 @@ boto3==1.34.0
 Pillow==10.3.0
 numpy==1.26.4
 scikit-learn==1.4.2
-streamlit>=1.35.0
+streamlit>=1.49.0
 plotly>=5.22.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
