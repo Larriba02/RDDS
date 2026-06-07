@@ -46,7 +46,6 @@ import argparse
 import json
 import os
 import tempfile
-import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -115,10 +114,12 @@ def _resolve_checkpoint(exp: dict[str, Any]) -> Path:
         dest = dl_dir / "best.pt"
         if not dest.exists():
             print(f"  Downloading checkpoint from B2: {b2_url}")
-            with urllib.request.urlopen(b2_url, timeout=300) as resp:
-                with open(dest, "wb") as fh:
-                    while chunk := resp.read(1 << 20):
-                        fh.write(chunk)
+            # The B2 bucket is private — anonymous HTTP returns 401. Reuse the
+            # authenticated S3 download (boto3 + .env credentials) already used by
+            # inference, so cross-machine checkpoints resolve here too.
+            from src.inference.predict import _download_from_b2
+
+            _download_from_b2(b2_url, dest)
         else:
             print(f"  Using cached download: {dest}")
         return dest

@@ -165,6 +165,11 @@ def _f1_vs_data() -> list[dict[str, Any]]:
         {"model": "yolo11s", "status": {"$ne": "failed"}},
         {"run_id": 1, "sample_ratio": 1, "metrics": 1, "_id": 0},
     )
+    # Protocol F1 (evaluation_val) and training-time F1 are on different bases and
+    # must never be compared by value — a protocol point always wins over a
+    # training-time one at the same ratio, so the curve cannot silently mix them
+    # (which would make the 100%-data point look worse than it is).
+    _SOURCE_RANK = {"evaluation_val": 1, "training-time": 0}
     best: dict[float, dict[str, Any]] = {}
     for d in docs:
         # The data-fraction curve is about fresh-from-scratch training at each
@@ -184,9 +189,14 @@ def _f1_vs_data() -> list[dict[str, Any]]:
             source = "training-time"
         if f1 is None:
             continue
+        cand = {"sample_ratio": ratio, "F1": f1, "f1_source": source, "run_id": d["run_id"]}
         cur = best.get(ratio)
-        if cur is None or f1 > cur["F1"]:
-            best[ratio] = {"sample_ratio": ratio, "F1": f1, "f1_source": source, "run_id": d["run_id"]}
+        if (
+            cur is None
+            or _SOURCE_RANK[source] > _SOURCE_RANK[cur["f1_source"]]
+            or (_SOURCE_RANK[source] == _SOURCE_RANK[cur["f1_source"]] and f1 > cur["F1"])
+        ):
+            best[ratio] = cand
     return [best[r] for r in sorted(best)]
 
 
