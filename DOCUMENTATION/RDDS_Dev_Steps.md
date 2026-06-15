@@ -291,6 +291,8 @@ cls_weight:         from class_distribution.json
 
 F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%→100%: +0.034). YOLO11s on full laptop dataset establishes the baseline.
 
+> **Note — which F1 is this?** The F1 column above is the **Ultralytics training-time F1** (the mAP-tracker proxy that drives early stopping and the funnel gate below). It is **not** the reported metric. The **canonical reported baseline F1** — `evaluate.py` under the CRDDC2022 protocol (IoU≥0.5, conf=0.5) — is **0.4581** for `run_20260504_202658_yolo11s` (see *Step 5 results*, below). The report and the deck use the canonical figure (≈0.46); the 0.598 training-time value must never be reported as the baseline F1.
+
 ### Done when — verified ✅
 - [x] Training completes without errors at all four sample ratios.
 - [x] MongoDB `experiments` has four completed documents with real metrics.
@@ -304,7 +306,7 @@ F1 curve confirms diminishing returns (10%→25%: +0.090, 25%→50%: +0.063, 50%
 
 **Owner:** J  
 **Status:** Superseded by YOLO11m local training on RTX 4060.  
-**Goal (original):** Find a YOLO11s hyperparameter configuration that beats the Phase 0 baseline (F1=0.598) before committing A100 time to Phase 1.
+**Goal (original):** Find a YOLO11s hyperparameter configuration that beats the Phase 0 baseline (training-time F1=0.598; canonical eval F1=0.458) before committing A100 time to Phase 1.
 
 **Update (2026-05-23):** Phase 1 / A100 is out of scope for the final deliverable
 (see project status note above), so the original justification for the YOLO11s

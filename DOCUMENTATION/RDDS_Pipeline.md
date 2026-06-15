@@ -137,7 +137,7 @@ A fixed baseline of **1,000 images per country** is always reserved for validati
 
 | Phase                      | SAMPLE_RATIO     | Purpose                                                        |
 | -------------------------- | ---------------- | -------------------------------------------------------------- |
-| Phase 0 — M (RTX 4050)     | 0.10→0.25→0.50→1.0 | F1-vs-data curve, pipeline validation. **YOLO11s baseline: F1=0.598.** |
+| Phase 0 — M (RTX 4050)     | 0.10→0.25→0.50→1.0 | F1-vs-data curve, pipeline validation. **YOLO11s baseline: canonical F1=0.458** (evaluate.py, CRDDC2022 IoU≥0.5/conf=0.5; the 0.598 figure is the Ultralytics training-time F1, ≈ its mAP@0.5). |
 | Step 3.5 — J (RTX 4060)    | 0.10→0.25→1.0    | Originally a YOLO11s hyperparameter funnel; pivoted to direct **YOLO11m main model** training. |
 | ~~Phase 1 — cluster (A100)~~ | ~~1.00~~       | Out of scope for the final deliverable — see status note.       |
 
@@ -335,7 +335,7 @@ collapsed to **two local training tracks**, both on consumer GPUs:
 │  Goal:      Map the F1-vs-data curve. Validate the full pipeline │
 │             end-to-end (MongoDB writes, MLflow logging,           │
 │             Backblaze upload, evaluation, promotion).             │
-│  Result:    mAP@0.5 = 0.601, F1 = 0.598 (YOLO11s, SAMPLE_RATIO=1.0, │
+│  Result:    mAP@0.5 = 0.596, F1 = 0.458 (YOLO11s, SAMPLE_RATIO=1.0, │
 │             run_20260504_202658) — promoted to is_production ✓    │
 └──────────────────────────────────────────────────────────────────┘
                             +
@@ -572,7 +572,7 @@ For full documentation of the retraining pipeline see `DOCUMENTATION/IN DETAIL/r
 | Dataset             | RDD2022                                  | Most current benchmark dataset. 6 countries, 47k+ images, CC BY-SA 4.0.                                          |
 | Test set            | Official RDD2022 test split, always 100% | Comparable with published benchmarks. Never touched during training.                                             |
 | Database            | MongoDB                                  | Heterogeneous document structure fits naturally. Images stay on filesystem.                                      |
-| YOLO11s baseline    | RTX 4050 laptop (M)                      | Pipeline validation + F1-vs-data sweep + final reported baseline (F1=0.598).                                     |
+| YOLO11s baseline    | RTX 4050 laptop (M)                      | Pipeline validation + F1-vs-data sweep + final reported baseline (canonical F1=0.458, CRDDC2022 IoU≥0.5/conf=0.5; 0.598 is the train-time F1). |
 | YOLO11m main model  | RTX 4060 (J)                             | Final reported main model. Replaces the originally planned A100 cluster run (out of scope, see status note).     |
 | ~~Cluster phase~~   | ~~A100, full dataset~~                   | ~~Out of scope for the final deliverable. Scripts preserved as design artifact.~~                                |
 | Video handling      | Frame extraction at 1 fps                | Damage is static. No need to process every frame. No mobile deployment required.                                 |
