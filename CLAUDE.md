@@ -84,7 +84,7 @@ YOLO11m main model is trained locally by J on the RTX 4060 instead.
 
 ## 5. Resource locations
 
-- **GitHub repo:** https://github.com/Larriba02/rdds (private).
+- **GitHub repo:** https://github.com/Larriba02/rdds (public).
 - **MongoDB Atlas:** cluster `rdds`, database `rdds`, three collections
   (`images_metadata`, `experiments`, `predictions`). Connection via `MONGO_URI`
   in `.env`.
@@ -201,12 +201,12 @@ Defined in `.claude/settings.json`.
 
 ## 11. Working preferences
 
-- **Language:** Marco prefers Spanish for conversation, but all code, comments,
+- **Language:** M prefers Spanish for conversation, but all code, comments,
   commit messages, and documentation are in English (course requirement and
   long-term maintainability).
 - **Tone:** concise, fact-based, no hedging. When ambiguous, ask a focused
   question rather than guessing.
-- **Decisions:** Marco wants to *understand* what is happening. Prefer
+- **Decisions:** M wants to *understand* what is happening. Prefer
   explanations that build mental model over instructions to copy-paste.
 - **Edits to docs:** when adjusting `RDDS_Pipeline.md` or `RDDS_Dev_Steps.md`,
   preserve their version markers and update them when the change is material.
@@ -214,7 +214,7 @@ Defined in `.claude/settings.json`.
 ## 12. Known operational quirks
 
 - **Working directory:** the repo lives at
-  `C:\Users\<user>\Local\ESTUDIOS\3ºCARRERA\VS\2do CUATRI\INTEGRATING PROJECT\RDDS\`.
+  `<repo-root>`.
   It was originally inside OneDrive (which caused `.git/index.lock` issues
   when git was driven from a sandbox / WSL bash session), and was moved to
   `Local\` to avoid the cloud-sync interference. There is no OneDrive copy

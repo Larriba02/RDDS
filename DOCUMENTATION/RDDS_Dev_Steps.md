@@ -57,7 +57,7 @@ The **final reported models** are both trained **locally**:
 
 ### What was done
 - [x] Git installed (v2.53.0) and configured with user identity.
-- [x] GitHub account set up. Repository `rdds` created at https://github.com/Larriba02/rdds (private).
+- [x] GitHub account set up. Repository `rdds` created at https://github.com/Larriba02/rdds (public).
 - [x] Branch strategy configured: `main` (stable) + `dev` (working branch). Feature branches per stage follow the pattern `feature/step-N-name`.
 - [x] Repository cloned locally to working machine.
 - [x] `.gitignore` configured — excludes `.env`, `data/`, `checkpoints/`, `runs/`, `mlruns/`, `outputs/`, `logs/`, `__pycache__/`, `.vscode/`.

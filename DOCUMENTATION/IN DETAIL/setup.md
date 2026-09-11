@@ -62,7 +62,7 @@ git config --global core.editor "code --wait"
 ## 2. GitHub Repository
 
 ### Structure
-The repository is hosted at https://github.com/Larriba02/rdds (private).
+The repository is hosted at https://github.com/Larriba02/rdds (public).
 It uses a three-level branch strategy:
 
 | Branch | Purpose | Rule |
