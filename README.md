@@ -1,231 +1,169 @@
 # Road Damage Detection System (RDDS)
-Group 3 — Universidad Francisco de Vitoria
 
-End-to-end road damage detection pipeline using deep learning on the RDD2022 dataset.
+An end-to-end deep learning pipeline that detects four classes of road surface
+damage in street-level imagery, trained on RDD2022 and evaluated under the
+official CRDDC2022 protocol (F1 at IoU ≥ 0.5).
 
-## Prerequisites
-- **Python 3.12.x** — required. Download from
-  https://www.python.org/downloads/ (any 3.12.x release works; pick the
-  latest). On Windows, run the installer with **"Add python.exe to PATH"**
-  and **"py launcher"** both checked.
-  Newer versions (3.13, 3.14) are *not* supported as of April 2026 — Pillow
-  and torch do not yet ship pre-built wheels for them and will fail to
-  install. Older versions (3.10, 3.11) may also work but 3.12 is the
-  reference.
-- Git
-- **NVIDIA GPU with CUDA 12.4-compatible drivers (strongly recommended).**
-  Training (`train.py`, `retrain.py`) and the CRDDC2022 evaluation
-  (`evaluate.py`) default to `device=0` (first CUDA GPU) and will fail
-  outright with `Invalid CUDA 'device=0' requested` if no GPU is visible.
-  Inference (`predict.py`) and the FastAPI web demo (`src/api`) fall back
-  to CPU automatically, but a single 640-pixel image takes ~3-5 s on CPU
-  versus ~50 ms on GPU. The Streamlit dashboard does not need a GPU.
-  Without CUDA you must pass `--device cpu` to `evaluate.py` / `retrain.py`
-  / `train.py`, accept that a Phase 0 sweep epoch will take 30-60 min
-  instead of 1-2 min, and skip the smoke tests that exercise training
-  (`tests/smoke_step7.py`).
+The repository covers the whole lifecycle, not just the model: dataset
+conversion and stratified splitting, training with experiment tracking,
+protocol-faithful evaluation, inference on images and video, and a controlled
+retraining loop that promotes a new model to production only when it beats the
+incumbent by a defined margin.
 
-  Verify your installation:
-  ```
-  py -3.12 --version          # Windows
-  python3.12 --version        # Mac/Linux
-  ```
+![F1 versus training-data fraction](docs/f1_vs_data_fraction.svg)
 
-## Setup
+## Results
 
-1. Clone the repository
-   ```
-   git clone https://github.com/Larriba02/rdds.git
-   cd rdds
-   ```
+All three rows are measured on the same fixed validation set under the same
+CRDDC2022 protocol, so the comparison is like-for-like.
 
-2. Create and activate a virtual environment **using Python 3.12 explicitly**
-   ```
-   py -3.12 -m venv .venv             # Windows
-   python3.12 -m venv .venv           # Mac/Linux
+| Model | F1 @ IoU ≥ 0.5 | mAP@0.5 |
+| --- | --- | --- |
+| YOLO11s baseline, 100 % of the training pool | 0.458 | 0.596 |
+| Production model — incremental fine-tune of the baseline | **0.493** (+0.035) | 0.601 |
+| CRDDC2022 winning entry (Maeda et al., 2022) | 0.770 | not published |
 
-   .venv\Scripts\activate             # Windows
-   source .venv/bin/activate          # Mac/Linux
+The baseline operates at precision 0.883 and recall 0.309: it is conservative,
+and nearly all of its error budget is missed damage rather than false alarms.
 
-   python --version                   # must print Python 3.12.x
-   ```
+Two conclusions. Fine-tuning improves on the baseline by a real but modest
+margin, and the remaining distance to the leaderboard is a matter of
+architecture rather than more training — the reference entry is an ensemble of
+architecturally different detectors, while this is a single vanilla one-stage
+model. The data-fraction curve supports that reading: F1 climbs steeply from
+10 % to 50 % of the training pool and then flattens, gaining only 0.006 over
+the final half of the data.
 
-   Pinning the Python version at venv creation matters: a venv is just a
-   thin wrapper around whichever interpreter you invoke. If your shell's
-   `python` points to 3.14, `python -m venv .venv` will create a 3.14 venv
-   and `setup.py` will then fail building Pillow.
+## Architecture
 
-3. Run the setup script
-   ```
-   python setup.py
-   ```
-
-   This will:
-   - Check you are on Python 3.12 (aborts with instructions if not)
-   - Detect your GPU and install `torch+cu124` (NVIDIA) or `torch` CPU automatically
-   - Install all remaining dependencies from `requirements.txt`
-   - Ask for your credentials and create your `.env` file (UTF-8)
-   - Configure Ultralytics for the project
-   - Verify the installation and report whether CUDA is available
-   - Offer to run a quick smoke test (Steps 1–2) to verify MongoDB and the data pipeline end-to-end
-
-4. Set RDD_DATA_ROOT in .env when the dataset is downloaded (Step 2)
-
-5. Verify MongoDB Atlas connection (Step 1)
-   ```
-   python -m src.db.setup_atlas
-   python -m src.db.test_connection
-   ```
-
-   First command creates the three collections and their indexes (idempotent).
-   Second command inserts/reads/deletes a sentinel document in each collection.
-
-   Note: from step 3 onwards the venv is active, so plain `python` already
-   points to the 3.12 interpreter inside `.venv`. You do **not** need to use
-   `py -3.12` for these commands — only at venv creation time.
-
-6. Data ingestion (Step 2 — run once by M, teammates pull from cloud)
-   ```
-   python -m src.data.download            # download RDD2022 ZIPs
-   python -m src.data.validate            # validate annotations, log discards
-   python -m src.data.convert             # PascalVOC XML → YOLO .txt
-   python -m src.data.analyse_distribution  # class distribution → logs/
-   python -m src.data.split               # assign train/val/test splits
-   python -m src.data.ingest              # write metadata to MongoDB
-   python -m src.data.upload_to_cloud     # upload labels + logs to B2
-   ```
-
-   To smoke-test the pipeline in seconds (no real dataset needed):
-   ```
-   python -m src.data.validate   --data-root tests/data/tiny_rdd2022
-   python -m src.data.convert    --data-root tests/data/tiny_rdd2022
-   python -m src.data.analyse_distribution --data-root tests/data/tiny_rdd2022
-   python -m src.data.split      --data-root tests/data/tiny_rdd2022
-   ```
-
-7. Training (Step 3 — Phase 0 laptop baseline)
-   ```
-   # Phase 0: grow from 10% to 100% to map F1-vs-data curve
-   python -m src.training.train --model yolo11s --sample-ratio 0.10 --epochs 50 --batch 8 --patience 15
-   python -m src.training.train --model yolo11s --sample-ratio 0.25 --epochs 50 --batch 8 --patience 15
-   python -m src.training.train --model yolo11s --sample-ratio 0.50 --epochs 50 --batch 8 --patience 15
-   python -m src.training.train --model yolo11s --sample-ratio 1.00 --epochs 50 --batch 8 --patience 15
-   ```
-
-   Prerequisites: Step 2 must be complete (splits.json and MongoDB images_metadata populated).
-   Each run writes to MongoDB, uploads checkpoints to B2, logs to MLflow, and conditionally promotes.
-
-   To smoke-test training without real data or B2 credentials:
-   ```
-   # Ingest tiny dataset into MongoDB first (requires MONGO_URI in .env)
-   python -m src.data.split     --data-root tests/data/tiny_rdd2022
-   python -m src.data.ingest    --data-root tests/data/tiny_rdd2022
-
-   # 1-epoch run, no B2 upload, no promotion
-   python -m src.training.train --model yolo11s --sample-ratio 1.0 --epochs 1 --batch 2 --skip-upload --skip-promote
-   ```
-
-8. Inference (Step 6)
-   ```
-   # Extract frames from a video at 1 fps:
-   python -m src.inference.extract_frames --video path/to/video.mp4 --output-dir outputs/frames/
-
-   # Predict on a single image (uses production model from MongoDB):
-   python -m src.inference.predict --source path/to/image.jpg
-
-   # Predict on a folder (e.g. extracted frames):
-   python -m src.inference.predict --source outputs/frames/ --output-dir outputs/predictions/
-
-   # Use a local .pt file instead of downloading from B2:
-   python -m src.inference.predict --source path/to/image.jpg --model runs/train/.../best.pt
-   ```
-
-9. Web demo (Step 8 — optional)
-   ```
-   uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
-   # Then open http://localhost:8000
-   ```
-
-## Troubleshooting
-
-**`setup.py` installed CPU torch on a machine that does have an NVIDIA GPU.**
-`setup.py` decides between `torch+cu124` and `torch` (CPU) based on whether
-`nvidia-smi` runs successfully at install time. If you ran setup before
-installing the NVIDIA drivers, or in a shell where `nvidia-smi` is not on
-PATH, the CPU wheel was installed and any later attempt to train or
-evaluate will fail with `Invalid CUDA 'device=0' requested` or a torch
-DLL load error (`c10.dll`). Verify with:
 ```
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-```
-If it prints `+cpu` or `False`, force-reinstall the CUDA wheel:
-```
-pip uninstall -y torch torchvision
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+download → validate → convert → analyse → split → ingest
+                                                    │
+                                                    ▼
+                                   train ──► evaluate ──► promote
+                                     │                       │
+                                     ▼                       ▼
+                              retrain (loop)            inference
+                                                     (images, video,
+                                                      FastAPI demo)
 ```
 
-**`Invalid CUDA 'device=0' requested` on a CPU-only machine.**
-Pass `--device cpu` to the script. `evaluate.py`, `train.py` and
-`retrain.py` all accept it. The FastAPI demo and `predict.py` already
-fall back to CPU automatically.
+Three pieces of infrastructure hold the pipeline together:
 
-**`/predict` returns 503 / API can't load the production model.**
-`_resolve_checkpoint` downloads `best.pt` from Backblaze B2 when no
-local copy is found in `runs/train/<run_id>/weights/`. The bucket is
-private, so `BACKBLAZE_KEY_ID` and `BACKBLAZE_APP_KEY` must be set in
-`.env`. The same credentials are required for the dashboard's
-`results.csv` fallback. Setup prompts for them; if you skipped, edit
-`.env` manually and restart.
+- **MongoDB Atlas** is the cross-machine source of truth. Three collections —
+  `images_metadata`, `experiments`, `predictions` — record every image, every
+  run and every prediction. Exactly one experiment document carries
+  `is_production=true` at any instant; promotion flips it inside a transaction,
+  so the production pointer is never ambiguous even with concurrent writers.
+- **MLflow** tracks per-run metrics and parameters locally on each machine.
+- **Backblaze B2** stores `best.pt`, `last.pt`, `best.onnx` and `results.csv`
+  for every run, with the URLs written back into the experiment document. Any
+  team member can fetch any model version from a URL; no machine has to stay
+  online as a checkpoint server.
 
-## No credentials yet?
-Contact M to receive the MongoDB Atlas URI and Backblaze credentials.
-In the meantime you can still clone the repo, set up the environment,
-and follow the detailed guides in DOCUMENTATION/IN DETAIL/.
+Design invariants held across every experiment: seed fixed at 42, the test
+split always evaluated whole, and the same 1,000 images per country held out
+for validation, stratified by dominant damage class. Promotion requires
+`F1_new > F1_current + 0.01`; runs inside a ±0.005 noise band are recorded but
+not promoted.
 
-## Environment Variables
-- MONGO_URI: MongoDB Atlas connection string
-- RDD_DATA_ROOT: Local path to the processed RDD2022 dataset
-- BACKBLAZE_KEY_ID / BACKBLAZE_APP_KEY: Backblaze B2 credentials
-- BACKBLAZE_BUCKET: Bucket name for model checkpoints
-- RANDOM_SEED: Fixed at 42 in all runs
-- SAMPLE_RATIO: Set automatically (0.10 Phase 0 / 1.0 Phase 1)
+Training ran in two phases. Phase 0 sweeps growing fractions of the training
+pool (10 / 25 / 50 / 100 %) on laptop-class hardware to validate the pipeline
+end to end and map the data-efficiency curve. Phase 1 was designed for a shared
+A100 SLURM cluster that never materialised; `scripts/train_cluster.sh` and
+`scripts/submit_sweep.sh` remain in the repository as a documented design
+artefact, and the YOLO11m run moved to a local RTX 4060 instead.
 
-## Documentation
-- DOCUMENTATION/RDDS_Dev_Steps.md — step-by-step development guide
-- DOCUMENTATION/RDDS_Pipeline.md — full pipeline reference
-- DOCUMENTATION/IN DETAIL/ — detailed guides for each pipeline stage
-  - [dashboard.md](DOCUMENTATION/IN%20DETAIL/dashboard.md) — experiment tracking dashboard and validation results viewer
-  - [evaluation.md](DOCUMENTATION/IN%20DETAIL/evaluation.md) — CRDDC2022 evaluation protocol, dataset splits, reported metrics
-  - [inference.md](DOCUMENTATION/IN%20DETAIL/inference.md) — inference module: extract_frames, predict, video workflow
-  - [api.md](DOCUMENTATION/IN%20DETAIL/api.md) — web demo: FastAPI routes, frontend, how to run
-  - [training.md](DOCUMENTATION/IN%20DETAIL/training.md) — training pipeline, Phase 0/1, hyperparameters
-  - [mongo.md](DOCUMENTATION/IN%20DETAIL/mongo.md) — MongoDB schema, collections, atomic promotion
-  - [data.md](DOCUMENTATION/IN%20DETAIL/data.md) — dataset download, conversion, ingestion
-  - [setup.md](DOCUMENTATION/IN%20DETAIL/setup.md) — environment setup and credentials
-  - [ai_assistance.md](DOCUMENTATION/IN%20DETAIL/ai_assistance.md) — AI tooling policy and configuration
+## Quick start
 
-## AI-assisted development
-This project uses AI tooling as a development assistant for code scaffolding,
-review, debugging, and documentation maintenance. All design decisions, metric
-choices, and result interpretations are made by the human team — see
-`DOCUMENTATION/IN DETAIL/ai_assistance.md` §10 ("Boundaries of Trust").
+Requires Python 3.12 and, for training or evaluation, an NVIDIA GPU. Inference
+and the web demo fall back to CPU.
 
-The configuration shipped in `CLAUDE.md` and `.claude/` (slash commands,
-subagents, hooks) targets [Claude Code](https://www.anthropic.com/claude-code)
-and **requires an active Claude subscription** on the developer's account.
-Without a subscription the configuration files are inert; the codebase still
-runs, the AI workflow simply does not.
+```bash
+git clone https://github.com/Larriba02/rdds.git && cd rdds
+python -m venv .venv && .venv/Scripts/activate   # Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env                             # then fill in MONGO_URI, RDD_DATA_ROOT, Backblaze keys
+```
 
-The same configuration is partially portable to OpenAI's
-[Codex CLI](https://developers.openai.com/codex/cli) (also a paid product):
-`CLAUDE.md` can be reused as `AGENTS.md`, the hook script is portable, but
-subagents and slash commands have to be recreated per developer (Codex
-stores them in `~/.codex/`, not in the repo).
+Then run any of:
 
-For the full AI usage policy, configuration details, and trust boundaries,
-see `DOCUMENTATION/IN DETAIL/ai_assistance.md`.
+```bash
+python -m src.db.test_connection                 # verify the Atlas connection
+python -m src.evaluation.evaluate                # CRDDC2022 evaluation of the production model
+streamlit run src/dashboard.py                   # experiment registry dashboard
+uvicorn src.api.main:app --reload                # FastAPI detection demo on :8000
+```
+
+Training and evaluation default to `device=0`; pass `--device cpu` on a machine
+without CUDA. The dataset is not bundled — `python -m src.data.download`
+fetches RDD2022 from the Sekilab S3 bucket into `RDD_DATA_ROOT`.
+
+## Project structure
+
+```
+src/db/            Atlas connection, collection and index setup, health check
+src/data/          download, validate, convert, analyse, split, ingest, upload
+src/training/      train, upload_checkpoint, promote, retrain
+src/evaluation/    CRDDC2022 evaluation, qualitative inspection, comparison
+src/inference/     single-image and video prediction, frame extraction
+src/api/           FastAPI web demo
+src/dashboard.py   Streamlit experiment registry
+tests/             smoke tests + tiny synthetic dataset
+scripts/           SLURM submission scripts (documented, not executed)
+DOCUMENTATION/     pipeline reference, development log, per-stage guides
+```
+
+## Dataset and metric
+
+- **RDD2022** — Sekilab, CC BY-SA 4.0. Four damage classes: longitudinal crack
+  (D00), transverse crack (D10), alligator crack (D20) and pothole (D40).
+- **CRDDC2022** — the reported metric is F1 at IoU ≥ 0.5, per country and
+  overall: https://crddc2022.sekilab.global/overview/. mAP@0.5 on the fixed
+  validation set is used during training to select `best.pt` and drive early
+  stopping, but it is not the reported figure.
 
 ## Team
-- M — Project lead. Pipeline architecture
-- L — MongoDB setup: Atlas cluster, collections, schemas.
-- J — Training and support
+
+Group 3, Integrating Project, BSc in Artificial Intelligence Engineering,
+Universidad Francisco de Vitoria — June 2026.
+
+- **Marco Larriba** — project lead. Pipeline architecture, data pipeline,
+  YOLO11s baseline, evaluation, retraining loop, web demo and overall delivery.
+- **Joaquín Abril** — YOLO11m training on local RTX 4060 hardware.
+- **David Lázaro** — MongoDB Atlas: cluster, schema and indexes.
+
+## License
+
+Released under the MIT License — see [LICENSE](LICENSE).
+
+Note that this project depends on [Ultralytics](https://github.com/ultralytics/ultralytics)
+YOLO11, which is licensed under AGPL-3.0. The MIT grant above covers the code
+in this repository; anyone distributing a combined work that links Ultralytics
+should review the AGPL-3.0 terms, which are more restrictive than MIT.
+
+## Documentation
+
+- [`DOCUMENTATION/RDDS_Pipeline.md`](DOCUMENTATION/RDDS_Pipeline.md) — full pipeline reference
+- [`DOCUMENTATION/RDDS_Dev_Steps.md`](DOCUMENTATION/RDDS_Dev_Steps.md) — step-by-step development log
+- [`DOCUMENTATION/IN DETAIL/`](DOCUMENTATION/IN%20DETAIL/) — one guide per stage:
+  [setup](DOCUMENTATION/IN%20DETAIL/setup.md) ·
+  [mongo](DOCUMENTATION/IN%20DETAIL/mongo.md) ·
+  [data](DOCUMENTATION/IN%20DETAIL/data.md) ·
+  [training](DOCUMENTATION/IN%20DETAIL/training.md) ·
+  [evaluation](DOCUMENTATION/IN%20DETAIL/evaluation.md) ·
+  [inference](DOCUMENTATION/IN%20DETAIL/inference.md) ·
+  [dashboard](DOCUMENTATION/IN%20DETAIL/dashboard.md) ·
+  [api](DOCUMENTATION/IN%20DETAIL/api.md) ·
+  [retraining](DOCUMENTATION/IN%20DETAIL/retraining.md) ·
+  [ai_assistance](DOCUMENTATION/IN%20DETAIL/ai_assistance.md)
+
+## AI-assisted development
+
+AI tooling was used as a development assistant for scaffolding, review,
+debugging and documentation maintenance. Design decisions, metric choices and
+result interpretation are the team's. The policy and its trust boundaries are
+documented in
+[`DOCUMENTATION/IN DETAIL/ai_assistance.md`](DOCUMENTATION/IN%20DETAIL/ai_assistance.md).
+The `CLAUDE.md` and `.claude/` configuration in this repository targets Claude
+Code and is inert without it; the codebase runs regardless.
