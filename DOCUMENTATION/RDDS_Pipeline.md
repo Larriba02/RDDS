@@ -217,9 +217,9 @@ full_path = os.path.join(os.getenv("RDD_DATA_ROOT"), image["filepath"])
   "hyperparams": { "epochs": 100, "batch": 32, "imgsz": 640, "seed": 42 },
   "metrics": { "mAP50": 0.84, "F1": 0.81, "precision": 0.83, "recall": 0.79 },
   "checkpoints": {
-    "best_pt":   "https://f000.backblazeb2.com/rdds/yolo11m_v1.0_run_20260310/best.pt",
-    "last_pt":   "https://f000.backblazeb2.com/rdds/yolo11m_v1.0_run_20260310/last.pt",
-    "best_onnx": "https://f000.backblazeb2.com/rdds/yolo11m_v1.0_run_20260310/best.onnx"
+    "best_pt":   "https://f000.backblazeb2.com/<bucket>/yolo11m_v1.0_run_20260310/best.pt",
+    "last_pt":   "https://f000.backblazeb2.com/<bucket>/yolo11m_v1.0_run_20260310/last.pt",
+    "best_onnx": "https://f000.backblazeb2.com/<bucket>/yolo11m_v1.0_run_20260310/best.onnx"
   },
   "sample_ratio": 0.10,
   "timestamp": "2026-03-10T14:32:00Z"

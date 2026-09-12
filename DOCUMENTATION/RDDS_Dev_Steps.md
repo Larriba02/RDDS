@@ -142,9 +142,9 @@ Any team member can clone the repo, run python setup.py, and the environment is 
   "hyperparams": { "epochs": 100, "batch": 32, "imgsz": 640, "seed": 42 },
   "metrics": { "mAP50": 0.84, "F1": 0.81, "precision": 0.83, "recall": 0.79 },
   "checkpoints": {
-    "best_pt":   "https://f000.backblazeb2.com/rdds/.../best.pt",
-    "last_pt":   "https://f000.backblazeb2.com/rdds/.../last.pt",
-    "best_onnx": "https://f000.backblazeb2.com/rdds/.../best.onnx"
+    "best_pt":   "https://f000.backblazeb2.com/<bucket>/.../best.pt",
+    "last_pt":   "https://f000.backblazeb2.com/<bucket>/.../last.pt",
+    "best_onnx": "https://f000.backblazeb2.com/<bucket>/.../best.onnx"
   },
   "timestamp": "2026-03-10T14:32:00Z"
 }
