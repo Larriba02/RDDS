@@ -241,3 +241,8 @@ DOCUMENTATION/RDDS_TFG_Memoria_v1.docx
 DOCUMENTATION/FINAL_DELIVERY/
 # Course follow-up documents — contain teammate personal data, not for publication
 FOLLOW-UP/
+
+# Course/presentation artefacts — not for the public repository
+DOCUMENTATION/PRESENTATION/
+DOCUMENTATION/RDDS_Final_Project_Report.docx
+DOCUMENTATION/_docx_inspect.txt
