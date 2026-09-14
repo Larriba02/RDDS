@@ -135,12 +135,18 @@ Universidad Francisco de Vitoria — June 2026.
 
 ## License
 
-Released under the MIT License — see [LICENSE](LICENSE).
+Copyright (C) 2026 Marco Larriba, Joaquín Abril, David Lázaro.
 
-Note that this project depends on [Ultralytics](https://github.com/ultralytics/ultralytics)
-YOLO11, which is licensed under AGPL-3.0. The MIT grant above covers the code
-in this repository; anyone distributing a combined work that links Ultralytics
-should review the AGPL-3.0 terms, which are more restrictive than MIT.
+Released under the GNU Affero General Public License v3.0 — see
+[LICENSE](LICENSE).
+
+AGPL-3.0 was chosen rather than a permissive licence because this project
+builds on [Ultralytics](https://github.com/ultralytics/ultralytics) YOLO11,
+which is itself AGPL-3.0. That licence is copyleft and extends to combined
+works, so a permissive grant on this code would have been misleading. In
+practice: you may use, study, modify and redistribute this work, but derived
+works must be released under the same licence, and that obligation is
+triggered by network use as well as by distribution.
 
 ## Documentation
 
